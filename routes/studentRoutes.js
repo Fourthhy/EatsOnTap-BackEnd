@@ -8,5 +8,7 @@ router.post('/students', studentController.createStudent);
 router.get('/students', studentController.getAllStudents);
 router.get('/students/:studentID', studentController.getStudentById);
 router.put('/students/:studentID/claim-meal', studentController.claimMeal);
+// New route for deducting credits
+router.put('/students/:studentID/deduct-credits', studentController.deductCredits);
 
 module.exports = router;

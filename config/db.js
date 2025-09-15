@@ -1,9 +1,10 @@
 // config/db.js
 const mongoose = require('mongoose');
+const MONGODB_URI = process.env.MONGODB_URI;
 
 const connectDB = async () => {
   try {
-    await mongoose.connect('mongodb://localhost:27017/studentDB', {
+    await mongoose.connect(MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       // useCreateIndex: true, // No longer needed in Mongoose 6+
