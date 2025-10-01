@@ -21,4 +21,7 @@ router.put('/students/:studentID/assign-credit', studentController.assignCreditV
 //Displaying all logging claima attempt
 router.get('/logger', studentController.getAllLoggingClaimAttempts);
 
+//New route for creating users
+router.post('/user/create-user', studentController.createUser);
+
 module.exports = router;
