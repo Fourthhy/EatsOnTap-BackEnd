@@ -1,7 +1,6 @@
 // config/db.js
 const mongoose = require('mongoose');
-const MONGODB_URI = `mongodb+srv://miguelmanabo4_db_user:veJNmirWTO6GSjJY@cluster0.kpjig7n.mongodb.net/
-`
+const MONGODB_URI = `mongodb+srv://miguelmanabo4_db_user:veJNmirWTO6GSjJY@cluster0.kpjig7n.mongodb.net/`
 
 const connectDB = async () => {
   try {
