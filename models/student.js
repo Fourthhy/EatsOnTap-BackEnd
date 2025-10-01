@@ -8,7 +8,9 @@ const studentSchema = new mongoose.Schema({
   last_name: { type: String, required: true },
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
-  year: { type: String, required: true },
-  mealEligibilityStatus: { type: String, default: 'Ineligible' },
+  year: { type: Number, required: true },
+  mealEligibilityStatus: { type: String, default: 'Elgible' },
   creditValue: { type: Number, default: 0 }
 });
+
+module.exports = mongoose.model('Student', studentSchema);
