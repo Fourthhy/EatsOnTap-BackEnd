@@ -10,5 +10,7 @@ router.get('/students/:studentID', studentController.getStudentById);
 router.put('/students/:studentID/claim-meal', studentController.claimMeal);
 // New route for deducting credits
 router.put('/students/:studentID/deduct-credits', studentController.deductCredits);
+//new route for assigning credits
+router.put('/students/:studentID/assign-credit', studentController.assignCreditValue);
 
 module.exports = router;

@@ -58,40 +58,31 @@ const claimMeal = async (req, res, next) => {
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    //if the student is 'Waived'
-    if (student.mealEligibilityStatus = 'Waived') {
-      return res.status(404).json({ message: 'Student is currently Waived!' });
+    switch (student.mealEligibilityStatus) {
+      case 'Waived':
+        return res.status(404).json({ message: 'Student is currently Waived!' });
+      case 'Claimed':
+        return res.status(404).json({ message: 'Student is already claimed!' });
+      case 'Ineligible':
+        return res.status(404).json({ message: 'Student is Ineligible' });
+      case 'Eligible':
+        //check if there is sufficient balance
+        if (student.creditValue != 60) {
+          return res.status(404).json({ message: "Insufficient Balance!" });
+        }
+        student.mealEligibilityStatus = 'Claimed';
+        student.creditValue = 0;
+        await student.save();
+        // Display the required information
+        const responseData = {
+          studentID: student.studentID,
+          Name: student.name,
+          Course: student.course,
+          mealEligibilityStatus: student.mealEligibilityStatus,
+          creditValue: student.creditValue
+        };
+        return res.json(responseData);
     }
-
-    //if the student is already 'Claimed'
-    if (student.mealEligibilityStatus = 'Claimed') {
-      return res.status(404).json({ message: 'Student is already claimed!' });
-    }
-
-    //if the student is 'Ineligible'
-    if (student.mealEligibilityStatus = 'Ineligible') {
-      return res.status(404).json({ message: 'Student is Ineligible' });
-    }
-
-    //if the student is 'Eligible'
-    if (student.mealEligibilityStatus = 'Eligible') {
-      //check if there is sufficient balance
-      if (student.creditValue != 60) {
-        res.status(404).json({message: "Insufficient Balance!"})
-      }
-      student.mealEligibilityStatus = 'Claimed';
-      await student.save();
-      // Display the required information
-      const responseData = {
-        studentID: student.studentID,
-        Name: student.name,
-        Course: student.course,
-        mealEligibilityStatus: student.mealEligibilityStatus,
-        creditValue: student.creditValue // Include creditValue in the response
-      };
-      res.json(responseData);
-    }
-
   } catch (error) {
     next(error);
   }
@@ -133,11 +124,33 @@ const deductCredits = async (req, res, next) => {
   }
 };
 
+//new function to assign creditValue to student
+const assignCreditValue = async (req, res, next) => {
+  try {
+    const student = await Student.findOne({ studentID: req.params.studentID });
+    if (student.creditValue != 0) {
+      res.status(404).json({ message: "Student already has credit value" });
+    }
+    student.creditValue = 60;
+    await student.save();
+    const responseData = {
+      studentID: student.studentID,
+      Name: student.last_name,
+      creditValue: student.creditValue // Display the new creditValue
+    };
+    res.status(200).json(responseData);
+
+  } catch (error) {
+    next(error);
+  }
+}
+
 export {
   createStudent,
   createUser,
   getAllStudents,
   getStudentById,
   claimMeal,
-  deductCredits
+  deductCredits,
+  assignCreditValue
 }
