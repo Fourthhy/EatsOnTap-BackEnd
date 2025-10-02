@@ -21,7 +21,7 @@ const createUser = async (req, res, next) => {
         //check if the user already exist
         const existingUser = await User.findOne({userID})
         if (existingUser) {
-            return res.status(404).json({ message: "User Already Exist" });
+            return res.status(409).json({ message: "User Already Exist" });
         }
 
         //if user doesn't exist yet, proceed to user creation
@@ -45,6 +45,7 @@ const createUser = async (req, res, next) => {
         if (error.name === 'ValidationError') {
             return res.status(400).json({ message: error.message });
         }
+        next(error)
     }
 }
 
