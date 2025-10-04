@@ -1,15 +1,5 @@
 import Logger from '../models/logger.js'
 
-// Utility function to safely log and avoid unhandled promise rejections
-const logClaimAttempt = async (studentID, action, creditTaken) => {
-    try {
-        await loggingClaimAttempts(studentID, action, creditTaken);
-    } catch (logError) {
-        // Log the logging error, but don't prevent the main transaction from proceeding
-        console.error(`Failed to save transaction log for ${action}:`, logError);
-    }
-};
-
 // Fetch all log records
 const getAllLoggingClaimAttempts = async (req, res, next) => {
     try {
@@ -23,6 +13,8 @@ const getAllLoggingClaimAttempts = async (req, res, next) => {
 }
 
 // logging claim attempts
+
+//This function is also used to log remove remaining credit balance from students at the end of the day.
 const loggingClaimAttempts = async (studentID, action, creditTaken) => {
     // CRITICAL FIX: Wrap database operation in try...catch
     try {
@@ -38,6 +30,16 @@ const loggingClaimAttempts = async (studentID, action, creditTaken) => {
         throw error; 
     }
 }
+
+// Utility function to safely log and avoid unhandled promise rejections
+const logClaimAttempt = async (studentID, action, creditTaken) => {
+    try {
+        await loggingClaimAttempts(studentID, action, creditTaken);
+    } catch (logError) {
+        // Log the logging error, but don't prevent the main transaction from proceeding
+        console.error(`Failed to save transaction log for ${action}:`, logError);
+    }
+};
 
 export {
     getAllLoggingClaimAttempts,

@@ -8,11 +8,13 @@ const userAuthentication = require('../middlewares/userAuthentication');
 router.put('/:studentID/claim-meal', userAuthentication.authSecurity, userAuthentication.foodServerAuth, claimController.claimMeal);
 //New route for claiming food item
 router.put('/:studentID/claim-foodItem', userAuthentication.authSecurity, userAuthentication.canteenStaffAuth, claimController.claimFood);
-// New route for deducting credits
-
 //Unprotected Routes
+
+// New route for deducting credits
 router.put('/:studentID/deduct-credits', claimController.deductCredits);
 //new route for assigning credits
 router.put('/:studentID/assign-credit', claimController.assignCreditValue);
+//new route for deducting remaining credits
+router.put('/:studentID/remove-credits', claimController.deductRemainingCredits);
 
 module.exports = router;
