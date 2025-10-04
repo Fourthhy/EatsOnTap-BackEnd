@@ -1,59 +1,10 @@
-import User from '../models/user.js'
-import bcrypt from 'bcrypt';
+import classAdviser from "../models/classAdviser.js";
+import bcrypt from "bcryptjs";  
 
-//for uploading using csv
 import csv from 'csv-parser';
 import stream from 'stream';
 
-//fetch all users 
-
-const getUsers = async (req, res, next) => {
-    try {
-        const users = await User.find({});
-        res.json(users);
-    } catch (error) {
-        next(error);
-    }
-}
-
-//Add a new user
-const createUser = async (req, res, next) => {
-    try {
-        //Destructure parameter fields:
-        const { userID, email, password, role } = req.body;
-
-        //check if the user already exist
-        const existingUser = await User.findOne({ userID })
-        if (existingUser) {
-            return res.status(409).json({ message: "User Already Exist" });
-        }
-
-        //if user doesn't exist yet, proceed to user creation
-        const saltRounds = 10;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-        const newUser = new User({
-            userID: userID,
-            email: email,
-            password: hashedPassword,
-            role: role
-        })
-
-        await newUser.save();
-
-        //in response, this prevents the hashedPassword from being displayed
-        const { password: userPassword, ...userInfo } = newUser._doc;
-        res.status(201).json(userInfo);
-
-    } catch (error) {
-        if (error.name === 'ValidationError') {
-            return res.status(400).json({ message: error.message });
-        }
-        next(error)
-    }
-}
-
-const createUsersFromCSV = async (req, res, next) => {
+const createClassAdvisersFromCSV = async (req, res, next) => {
     // Check for file existence
     if (!req.file) {
         return res.status(400).json({ message: 'No CSV file uploaded.' });
@@ -76,9 +27,10 @@ const createUsersFromCSV = async (req, res, next) => {
             // CRITICAL FIX: Instead of destroying the stream, 
             // push a rejected Promise if data is bad.
             // ----------------------------------------------------
-            if (!data.password || !data.userID || !data.email) {
+            if (!data.password || !data.userID || !data.email || !data.section) {
+
                 // Push a rejected promise, which will immediately fail the Promise.all later
-                const requiredFields = ['password', 'userID', 'email'];
+                const requiredFields = ['password', 'userID', 'email', 'section'];
                 const missing = requiredFields.filter(f => !data[f]);
 
                 hashingPromises.push(Promise.reject(
@@ -120,7 +72,7 @@ const createUsersFromCSV = async (req, res, next) => {
             // --- Database Insertion (Bulk Insertion Logic is correct) ---
             try {
                 // ... (Your insertMany logic and response remains here)
-                const addedUsers = await User.insertMany(userData, { ordered: false });
+                const addedUsers = await classAdviser.insertMany(userData, { ordered: false });
 
                 const responseUsers = addedUsers.map(user => {
                     const { password: userPassword, ...userInfo } = user.toObject({ getters: true }); 
@@ -155,7 +107,5 @@ const createUsersFromCSV = async (req, res, next) => {
 };
 
 export {
-    getUsers,
-    createUser,
-    createUsersFromCSV
+    createClassAdvisersFromCSV
 }

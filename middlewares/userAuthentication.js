@@ -18,8 +18,8 @@ const authSecurity = (req, res, next) => {
       // Attach user data to the request object
       // We don't fetch the full user document from the DB here for performance, 
       // but we attach the essential data from the token's payload.
-      req.user = decoded; 
-      
+      req.user = decoded;
+
       // Move to the next middleware or controller function
       next();
     } catch (error) {
@@ -37,28 +37,81 @@ const authSecurity = (req, res, next) => {
 
 // Middleware to authorize FOOD-SERVER role
 const foodServerAuth = (req, res, next) => {
-    // req.user is available here thanks to the 'authSecurity' middleware
-    if (req.user && req.user.role === 'FOOD-SERVER') {
-        next(); // Authorized, proceed to controller
-    } else {
-        // 403 Forbidden status code
-        res.status(403).json({ message: 'Forbidden: Only FOOD-SERVER can perform this action.' });
-    }
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'FOOD-SERVER') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only FOOD-SERVER can perform this action.' });
+  }
 };
 
 // Middleware to authorize CANTEEN-STAFF role
 const canteenStaffAuth = (req, res, next) => {
-    // req.user is available here thanks to the 'authSecurity' middleware
-    if (req.user && req.user.role === 'CANTEEN-STAFF') {
-        next(); // Authorized, proceed to controller
-    } else {
-        // 403 Forbidden status code
-        res.status(403).json({ message: 'Forbidden: Only CANTEEN-STAFF can perform this action.' });
-    }
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'CANTEEN-STAFF') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only CANTEEN-STAFF can perform this action.' });
+  }
 };
 
-export { 
-    authSecurity,
-    foodServerAuth,
-    canteenStaffAuth
- };
+const classAdviserAuth = (req, res, next) => {
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'CLASS-ADVISER') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only CLASS-ADVISER can perform this action.' });
+  }
+}
+
+const adminAssistantAuth = (req, res, next) => {
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'ADMIN-ASSISTANT') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only ADMIN-ASSISTANT can perform this action.' });
+  }
+}
+
+const adminAuth = (req, res, next) => {
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'ADMIN') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only ADMIN can perform this action.' });
+  }
+}
+
+const superAdminAuth = (req, res, next) => {
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'SUPER-ADMIN') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only SUPER-ADMIN can perform this action.' });
+  }
+}
+
+const chancellorAuth = (req, res, next) => {
+  // req.user is available here thanks to the 'authSecurity' middleware
+  if (req.user && req.user.role === 'CHANCELLOR') {
+    next(); // Authorized, proceed to controller
+  } else {
+    // 403 Forbidden status code
+    res.status(403).json({ message: 'Forbidden: Only CHANCELLOR can perform this action.' });
+  }
+}
+
+export {
+  authSecurity,
+  foodServerAuth,
+  canteenStaffAuth,
+  adminAuth,
+  superAdminAuth,
+  chancellorAuth
+};
