@@ -18,4 +18,10 @@ router.get('/:studentID', studentController.getStudentById);
 router.post('/usingCSV', upload.single('students_information'), studentController.creteStudentFromCSV);
 // router.post('/usingCSV', studentController.creteStudentFromCSV);
 
+//Route for deem student Waived
+router.put('/:studentID/waiveStatus', studentController.waiveStudent);
+
+//Route for deem student Eligible 
+router.put('/:studentID/eligibleStatus', studentController.eligibleStudent);
+
 module.exports = router;

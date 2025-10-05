@@ -16,22 +16,22 @@ const claimMeal = async (req, res, next) => {
         }
 
         switch (student.mealEligibilityStatus) {
-            case 'Waived':
+            case 'WAIVED':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-WAIVED', 0);
                 // FIX 3: Use 400 Bad Request
                 return res.status(400).json({ message: 'Student is currently Waived!' });
-            case 'Claimed':
+            case 'CLAIMED':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-CLAIMED', 0);
                 // FIX 3: Use 409 Conflict (Resource state prevents action)
                 return res.status(409).json({ message: 'Student is already claimed!' });
-            case 'Ineligible':
+            case 'INELIGIBLE':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-INELIGIBLE', 0)
                 // FIX 3: Use 400 Bad Request
                 return res.status(400).json({ message: 'Student is Ineligible' });
-            case 'Eligible':
+            case 'ELIGIBLE':
                 // check if there is sufficient balance
                 if (student.creditValue !== 60) {
                     // FIX 1: Use await and safe logger wrapper
@@ -41,7 +41,7 @@ const claimMeal = async (req, res, next) => {
                 }
 
                 // Updating student record 
-                student.mealEligibilityStatus = 'Claimed';
+                student.mealEligibilityStatus = 'CLAIMED';
                 student.creditValue = 0;
                 await student.save();
 
@@ -82,22 +82,22 @@ const claimFood = async (req, res, next) => {
 
 
         switch (student.mealEligibilityStatus) {
-            case 'Waived':
+            case 'WAIVED':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-WAIVED', 0);
                 // FIX 3: Use 400 Bad Request
                 return res.status(400).json({ message: 'Student is currently Waived!' });
-            case 'Claimed':
+            case 'CLAIMED':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-CLAIMED', 0);
                 // FIX 3: Use 409 Conflict
                 return res.status(409).json({ message: 'Student is already claimed (Full meal taken)!' });
-            case 'Ineligible':
+            case 'INELIGIBLE':
                 // FIX 1: Use await and safe logger wrapper
                 await logClaimAttempt(student.studentID, 'CLAIM-ATTEMPT-INELIGIBLE', 0)
                 // FIX 3: Use 400 Bad Request
                 return res.status(400).json({ message: 'Student is Ineligible' });
-            case 'Eligible':
+            case 'ELIGIBLE':
                 // check if the balance is not 0
                 if (student.creditValue === 0) {
                     // FIX 1: Use await and safe logger wrapper
@@ -120,7 +120,7 @@ const claimFood = async (req, res, next) => {
 
                 // if there isn't credit left, the student will be deemed "Claimed"
                 if (creditChange === 0) {
-                    student.mealEligibilityStatus = "Claimed";
+                    student.mealEligibilityStatus = "CLAIMED";
                 }
 
                 // Updating student record 

@@ -3,6 +3,9 @@ import Student from '../models/student.js';
 import csv from 'csv-parser';
 import stream from 'stream';
 
+import { logWaiveStatus, logEligibilityStatus } from "./loggerController.js";
+
+
 // Add a new student
 const createStudent = async (req, res, next) => {
   try {
@@ -66,12 +69,12 @@ const creteStudentFromCSV = async (req, res, next) => {
       try {
         //bulking insert all documents
 
-        const addedStudents = await Student.insertMany(studentData, { ordered: false});
+        const addedStudents = await Student.insertMany(studentData, { ordered: false });
 
         res.status(201).json({ message: `Successfully Created ${addedStudents.length} students` });
       } catch (error) {
         console.error("Mongoose insert bulk error:", error.message);
-        return res.status(400).json({message: "Bulk insertion failed"})
+        return res.status(400).json({ message: "Bulk insertion failed" })
       }
     })
     .on('error', (error) => {
@@ -80,10 +83,51 @@ const creteStudentFromCSV = async (req, res, next) => {
     })
 }
 
+//function to label the student as WAIVED
+const waiveStudent = async (req, res, next) => {
+  //check if student data exist
+  try {
+    const student = await Student.findOne({ studentID: req.params.studentID });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    student.mealEligibilityStatus = 'WAIVED';
+    student.save()
+    await logWaiveStatus(student.studentID, 'WAIVED')
+    return res.status(200).json({message: `${student.studentID} is now WAIVED`});
+
+  } catch (error) {
+    next(error)
+  }
+}
+
+//function to label the student as ELIGIBLE
+const eligibleStudent = async (req, res, next) => {
+  //check if student data exist
+  try {
+    const student = await Student.findOne({ studentID: req.params.studentID }); 
+
+    if (!student) {
+      return res.status(404).json({ message: "Student not found"})
+    }
+
+    student.mealEligibilityStatus = 'ELIGIBLE';
+    student.creditValue = 60;
+    await logEligibilityStatus(student.studentID, 'ELIGIBLE')
+    student.save()
+    return res.status(200).json({message: `${student.studentID} is now ELIGIBLE`});
+  } catch (error) {
+    next(error);
+  }
+}
+
 
 export {
   createStudent,
   getAllStudents,
   getStudentById,
-  creteStudentFromCSV
+  creteStudentFromCSV,
+  waiveStudent,
+  eligibleStudent
 }

@@ -106,6 +106,30 @@ const createClassAdvisersFromCSV = async (req, res, next) => {
         });
 };
 
+const getClassAdviserByID = async (req, res, next) => {
+      try {
+        const classAdvisers = await classAdviser.findOne({ userID: req.params.userID });
+        if (!classAdvisers) {
+          return res.status(404).json({ message: 'Class Adviser is not in the list' });
+        }
+        res.json(classAdvisers);
+      } catch (error) {
+        next(error);
+      }
+}
+
+// Fetch all Class Adviser data
+const getAllClassAdvisers = async (req, res, next) => {
+  try {
+    const classAdvisers = await classAdviser.find({});
+    res.json(classAdvisers);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export {
-    createClassAdvisersFromCSV
+    createClassAdvisersFromCSV,
+    getClassAdviserByID,
+    getAllClassAdvisers
 }

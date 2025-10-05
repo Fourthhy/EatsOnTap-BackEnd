@@ -9,7 +9,7 @@ const studentSchema = new mongoose.Schema({
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
   year: { type: Number, required: true },
-  mealEligibilityStatus: { type: String, default: 'Ineligible' },
+  mealEligibilityStatus: { type: String, enum: ['ELIGIBLE', 'INELIGIBLE', 'CLAIMED', 'WAIVED'], default: 'INELIGIBLE' },
   creditValue: { type: Number, default: 0 }
 });
 

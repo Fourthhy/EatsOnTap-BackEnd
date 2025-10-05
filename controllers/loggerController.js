@@ -1,10 +1,11 @@
-import Logger from '../models/logger.js'
+import Logger from '../models/loggers/claimLogger.js'
+import statusLogger from '../models/loggers/statusLogger.js'
 
 // Fetch all log records
 const getAllLoggingClaimAttempts = async (req, res, next) => {
     try {
         // Renamed variable for clarity (multiple records)
-        const logs = await Logger.find({}) 
+        const logs = await Logger.find({})
         res.json(logs);
     } catch (error) {
         // Pass the error to the Express error handler
@@ -27,7 +28,7 @@ const loggingClaimAttempts = async (studentID, action, creditTaken) => {
     } catch (error) {
         // Crucial: Allow the error to propagate back to the caller 
         // (the logClaimAttempt wrapper in studentController) so it can be handled/logged.
-        throw error; 
+        throw error;
     }
 }
 
@@ -41,9 +42,50 @@ const logClaimAttempt = async (studentID, action, creditTaken) => {
     }
 };
 
+const loggingWaiveStatus = async (studentID, actionTaken)  => {
+    try {
+        const waiveLogger = new statusLogger({
+            studentID: studentID,
+            actionTaken: actionTaken
+        })
+        await waiveLogger.save();
+    } catch (error) {
+        throw error;
+    }
+}
+
+const logWaiveStatus = async (studentID, actionTaken) => {
+    try {
+        await loggingWaiveStatus(studentID, actionTaken); 
+    } catch (error) {
+        console.error(`Failed to save transaction log for ${actionTaken}:`, error);
+    }
+}
+
+const loggingEligibleStatus = async (studentID, actionTaken) => {
+    try {
+        const eligibilityLogger = new statusLogger({
+            studentID: studentID,
+            actionTaken: actionTaken
+        }) 
+        await eligibilityLogger.save()
+    } catch (error) {
+        throw error;
+    }
+}
+
+const logEligibilityStatus = async (studentID, actionTaken) => {
+    try {
+        await loggingEligibleStatus(studentID, actionTaken);
+    } catch (error) {
+        console.error(`Failed to save transaction log for ${actionTaken}:`, error);
+    }
+}
+
 export {
     getAllLoggingClaimAttempts,
-    loggingClaimAttempts,
-    logClaimAttempt // <-- Export the new wrapper function
+    logClaimAttempt,
+    logWaiveStatus,
+    logEligibilityStatus
 }
 

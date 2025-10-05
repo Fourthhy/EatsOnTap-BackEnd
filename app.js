@@ -7,6 +7,7 @@ const loggerRoutes = require('./routes/loggerRoutes');
 const claimRoutes = require('./routes/claimRoutes');
 const authRoutes = require('./routes/authRoutes');
 const classAdviserRoutes = require('./routes/classAdviserRoutes');
+const eligibilityRoutes = require('./routes/eligibilityRoutes');
 const errorHandler = require('./middlewares/eventHandler'); // <-- Ensure this path is correct
 
 const app = express();
@@ -21,6 +22,7 @@ app.use('/api/logger', loggerRoutes) //Prefix all logger routes with /api/logger
 app.use('/api/claim', claimRoutes) //Prefix all claim routes with /api/claim
 app.use('/api/auth', authRoutes) //Prefix all authentication routes with /api/auth
 app.use('/api/classAdviser', classAdviserRoutes) //Prefix all authentication routes with /api/classAdviser
+app.use('/api/eligibility', eligibilityRoutes)//Prefix all authentication routes with /api/eligibility
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler); // <-- This is where the middleware is applied
