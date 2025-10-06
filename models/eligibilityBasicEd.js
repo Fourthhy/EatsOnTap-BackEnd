@@ -5,7 +5,8 @@ const eligibilityBasicEdSchema = new mongoose.Schema({
     requester: { type: String, required: true },
     section : { type: String, required: true},
     forEligible: { type: [String], required: true},
-    forTemporarilyWaived: { type: [String], required: true } //waived just for the current day
+    forTemporarilyWaived: { type: [String], required: true }, //waived just for the current day
+    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING'}
 });
 
 module.exports = mongoose.model('eligibilityBasicEd', eligibilityBasicEdSchema);

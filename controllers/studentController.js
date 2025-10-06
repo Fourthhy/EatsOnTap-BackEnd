@@ -83,7 +83,7 @@ const creteStudentFromCSV = async (req, res, next) => {
     })
 }
 
-//function to label the student as WAIVED
+//function to MANUALLY label the student as WAIVED
 const waiveStudent = async (req, res, next) => {
   //check if student data exist
   try {
@@ -102,7 +102,7 @@ const waiveStudent = async (req, res, next) => {
   }
 }
 
-//function to label the student as ELIGIBLE
+//function to MANUALLY label the student as ELIGIBLE
 const eligibleStudent = async (req, res, next) => {
   //check if student data exist
   try {

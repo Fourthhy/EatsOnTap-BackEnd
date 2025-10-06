@@ -1,9 +1,10 @@
-//This controller approves meal recepient list
-
+import user from '../models/user.js';
 import classAdviser from '../models/classAdviser.js';
 import eligibilityBasicEd from '../models/eligibilityBasicEd.js'
+import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
 import student from '../models/student.js'
-// import { eligibleStudent } from './studentController';
+
+
 
 const getStudentIDsBySection = async (section) => {
     if (!section) {
@@ -15,15 +16,30 @@ const getStudentIDsBySection = async (section) => {
         { studentID: 1, _id: 0 })
 
     const allStudentIDs = allStudentIDsInSection.map(student => student.studentID);
-    return allStudentIDs;   
+    return allStudentIDs;
 }
 
-const submitMealRequestList = async (req, res, next) => {
+const getStudentIDsByProgramAndYear = async (program, year) => {
+    if (!program || !year) {
+        throw new Error("Both program and year parameters need to be filled");
+    }
+
+    const allStudentIDsByProgramAndYear = await student.find({
+        program: program,
+        year: year
+    })
+
+    const allStudentIDs = allStudentIDsByProgramAndYear.map(s => s.studentID);
+
+    return allStudentIDs;
+}
+
+const submitDailyMealRequestList = async (req, res, next) => {
     try {
-        const { requesterID, section, eligibleStudentIDs } = req.body;
+        const { requesterID, section, forEligibleStudentIDs } = req.body;
 
         //check and validate fields
-        if (!requesterID || !section || !Array.isArray(eligibleStudentIDs)) {
+        if (!requesterID || !section || !Array.isArray(forEligibleStudentIDs)) {
             return res.status(400).json({ message: "Missing required fields" })
         }
 
@@ -35,29 +51,29 @@ const submitMealRequestList = async (req, res, next) => {
 
         //extracts all student IDs by section
         const allStudentIDs = await getStudentIDsBySection(section)
-        
+
         //check if the students in the section exist
         if (!allStudentIDs.lenght === 0) {
             return res.status(404).json({ message: `No student available in ${section} section` });
         }
 
         //Fetch the full list of students within that section to determine default eligibliity status
-        const allStudents = await student.find({ studentID: { $in: allStudentIDs }});
+        const allStudents = await student.find({ studentID: { $in: allStudentIDs } });
 
         const waivedByDefault = new Set(
             allStudents
-                .filter( student => student.mealEligibilityStatus === 'WAIVED')
-                .map( student => student.studentID )
+                .filter(student => student.mealEligibilityStatus === 'WAIVED')
+                .map(student => student.studentID)
         )
 
         //Determine temporarily waived students (those are exempted from the given list)
-        const eligibleSet = new Set(eligibleStudentIDs);
+        const eligibleSet = new Set(forEligibleStudentIDs);
 
-        const forTemporarilyWaived = allStudentIDs.filter(studentID => 
+        const forTemporarilyWaived = allStudentIDs.filter(studentID =>
             !eligibleSet.has(studentID) && !waivedByDefault.has(studentID)
         )
 
-        const forEligible = eligibleStudentIDs.filter(studentID => !waivedByDefault.has(studentID));
+        const forEligible = forEligibleStudentIDs.filter(studentID => !waivedByDefault.has(studentID));
 
         const newEligibilityListing = new eligibilityBasicEd({
             requester: requesterID,
@@ -83,8 +99,87 @@ const submitMealRequestList = async (req, res, next) => {
         }
         next(error)
     }
+
+}
+// Assuming imports for user, eligibilityBasicEd, and student are defined globally/locally
+// And that getStudentIDsByProgramAndYear is available and returns a Promise<string[]>
+
+const submitScheduledMealRequestList = async (req, res, next) => {
+    try {
+        // Removed forEligibleStudentIDs from destructuring
+        const { requesterID, program, year, dayOfWeek } = req.body;
+
+        // --- 1. Input Validation ---
+        // Simplified validation: No need to check for Array.isArray
+        if (!requesterID || !program || !year || !dayOfWeek) {
+            return res.status(400).json({ message: "Missing required fields (requesterID, program, year, or dayOfWeek)." });
+        }
+
+        // --- 2. Authorization Check ---
+        const adminAssistant = await user.findOne({ userID: requesterID, role: 'ADMIN-ASSISTANT' });
+        if (!adminAssistant) {
+            return res.status(403).json({ message: "Authorization failed. Account is not a registered Admin Assistant." });
+        }
+
+        // --- 3. Extract All Student IDs ---
+        const allStudentIDs = await getStudentIDsByProgramAndYear(program, year);
+
+        // --- 4. Check for Students ---
+        if (allStudentIDs.length === 0) {
+            return res.status(404).json({ message: `No student available in ${program} program, in the year: ${year}` });
+        }
+
+        // Fetch the full list of students to determine default eligibility status
+        const allStudents = await student.find({ studentID: { $in: allStudentIDs } });
+
+        // Waived by Default (Students who are permanently excluded from eligibility)
+        const waivedByDefault = new Set(
+            allStudents
+                .filter(s => s.mealEligibilityStatus === 'WAIVED')
+                .map(s => s.studentID)
+        );
+
+        // --- CRITICAL LOGIC CHANGE ---
+        // 5. Determine Eligible Students: All students who are NOT waived by default.
+        const forEligible = allStudentIDs.filter(studentID => 
+            !waivedByDefault.has(studentID)
+        );
+
+        // 6. Waived Students: Only the permanent waivers (if the eligibility model requires both fields, otherwise this should be an empty array).
+        // Since all non-waived students are eligible, the temporary waiver list is empty.
+        const forWaived = []; // No temporary waivers are processed/submitted in this simplified model.
+
+        // --- 7. Create and Save Listing ---
+        const newEligibilityListing = new eligibilityHigherEd({
+            requester: requesterID,
+            program: program,
+            year: year,
+            forEligible: forEligible,
+            forWaived: forWaived, // Passed as an empty array
+            forDay: dayOfWeek
+        });
+
+        await newEligibilityListing.save();
+
+        // --- 8. Success Response ---
+        res.status(201).json({
+            message: `Scheduled meal list submitted for ${program}, in the year ${year} for ${dayOfWeek}. ${forEligible.length} students are deemed eligible by default.`,
+            totalStudents: allStudentIDs.length,
+            eligibleCount: forEligible.length,
+            waivedCount: forWaived.length, // This will now be 0
+            data: newEligibilityListing
+        });
+
+    } catch (error) {
+        console.error("Error submitting scheduled meal request list: ", error);
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ message: error.message });
+        }
+        next(error)
+    }
 }
 
 export {
-    submitMealRequestList,
+    submitDailyMealRequestList,
+    submitScheduledMealRequestList
 }
