@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const eligibilityHigherEdSchema = new mongoose.Schema({
+    eligibilityID: {type: String, required: true },
     timeStamp: { type: Date, default: Date.now, required: true },
     requester: { type: String, required: true },
     program : { type: String, required: true},

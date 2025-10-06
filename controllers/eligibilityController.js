@@ -76,6 +76,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
         const forEligible = forEligibleStudentIDs.filter(studentID => !waivedByDefault.has(studentID));
 
         const newEligibilityListing = new eligibilityBasicEd({
+            eligibilityID: `${requesterID}-${section}`,
             requester: requesterID,
             section: section,
             forEligible: forEligible,
@@ -151,6 +152,7 @@ const submitScheduledMealRequestList = async (req, res, next) => {
 
         // --- 7. Create and Save Listing ---
         const newEligibilityListing = new eligibilityHigherEd({
+            eligibilityID: `${requesterID}-${program}-${year}`,
             requester: requesterID,
             program: program,
             year: year,
@@ -164,6 +166,7 @@ const submitScheduledMealRequestList = async (req, res, next) => {
         // --- 8. Success Response ---
         res.status(201).json({
             message: `Scheduled meal list submitted for ${program}, in the year ${year} for ${dayOfWeek}. ${forEligible.length} students are deemed eligible by default.`,
+            eligibilityID: `${requesterID}-${program}-${year}`,
             totalStudents: allStudentIDs.length,
             eligibleCount: forEligible.length,
             waivedCount: forWaived.length, // This will now be 0
@@ -178,6 +181,17 @@ const submitScheduledMealRequestList = async (req, res, next) => {
         next(error)
     }
 }
+
+//when admin approved the request, create a function that will scan the status of an meal eligibiltity request (scheduled and note scheduled). if APPROVED, create a function that will "mass eligible" and "mass waive" the students from the eligibility list.
+
+//for basic education, the function has a parameter of the class adviser's ID, which naturally prevents them to submit another list, the class adviser's ID will act as the eligiblity ID of the list they submitted.
+
+/* for higher education, the function has a parameter of the admin-assistant's ID, followed by program and year that is hyperated.
+e.g. 22-000111aaa-BSIS-2
+that will server as the eligibility ID of the list they submitted.
+
+*/
+
 
 export {
     submitDailyMealRequestList,
