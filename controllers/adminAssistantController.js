@@ -4,7 +4,7 @@ const getAdminAssistant = async (req, res, next) => {
     try {
         // 1. Use the .find() method (instead of .findOne()) to return all matching documents.
         // 2. The query object specifies the role we are looking for: { role: 'ADMIN-ASSISTANT' }
-        const adminAssistant = await Users.find({ role: 'ADMIN-ASSISTANT' }).select('-password');
+        const adminAssistant = await Users.find({ role: "ADMIN-ASSISTANT" }).select('-passowrd');
 
         // Optional: Check if any documents were found
         if (adminAssistant.length === 0) {
