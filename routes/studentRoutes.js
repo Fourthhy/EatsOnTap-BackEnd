@@ -6,10 +6,10 @@ const studentController = require('../controllers/studentController');
 const upload = require('../middlewares/multer.js').default;
 
 //Route for adding a new student
-router.post('/', studentController.createStudent);
+router.post('/addNewStudent', studentController.createStudent);
 
 //Route for fetching all students
-router.get('/', studentController.getAllStudents);
+router.get('/getAllStudents', studentController.getAllStudents);
 
 //Route for fetching student with specified ID
 router.get('/:studentID', studentController.getStudentById);
