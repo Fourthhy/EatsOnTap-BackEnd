@@ -10,6 +10,7 @@ const classAdviserRoutes = require('./routes/classAdviserRoutes');
 const adminAssistantRoutes = require('./routes/adminAssistantRoutes');
 const eligibilityRoutes = require('./routes/eligibilityRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const settingRoutes = require('./routes/settingRoutes');
 const errorHandler = require('./middlewares/eventHandler'); // <-- Ensure this path is correct
 
 const app = express();
@@ -27,6 +28,7 @@ app.use('/api/classAdviser', classAdviserRoutes) //Prefix all authentication rou
 app.use('/api/adminAssistant', adminAssistantRoutes) //Prefix all authentication routes with /api/adminAssistant
 app.use('/api/eligibility', eligibilityRoutes) //Prefix all authentication routes with /api/eligibility
 app.use('/api/admin', adminRoutes) //Prefix all authentication routes with /api/admin
+app.use('/api/setting', settingRoutes) //Prefix all authentication routes with /api/setting
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler); // <-- This is where the middleware is applied

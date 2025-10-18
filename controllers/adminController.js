@@ -6,6 +6,8 @@ import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
 
 //Transforming Status from "PENDING" to "APPROVED"
 
+//dito rin papasok yung 3rd setting, titignan nia kung naka enable ba na merong time mag bigay ng credit si PSAS
+
 const approveMealEligibilityRequest = async (req, res) => {
     try {
         const eligibilityRequestList = await eligibilityBasicEd.findOne({ eligibilityID: req.params.eligibilityID });

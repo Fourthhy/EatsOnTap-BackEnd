@@ -1,6 +1,7 @@
 // FIX 2: Import the safe logging wrapper function from loggerController.js
 import { logClaimAttempt } from "./loggerController.js";
 import Student from "../models/student.js";
+import Setting from "../models/setting.js";
 
 // This controller handles all the claim attempts done by the students monitored by respective user roles such as FOOD-SERVER and CANTEEN-STAFF
 
@@ -9,6 +10,17 @@ const claimMeal = async (req, res, next) => {
     try {
         // searching for the student
         const student = await Student.findOne({ studentID: req.params.studentID });
+
+        const claimSetting = await Setting.findOne({ settingName: 'STUDENT-CLAIM' })
+        if (!claimSetting) {
+            res.status(400).json({ message: "Setting not found" });
+        }
+        if (claimSetting.settingEnable === false) {
+            res.status(400).json({ message: "Setting is not active, please turn it on" });
+        }
+        if (claimSetting.settingActive === false) {
+            res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
+        }
 
         // if student does not exist, it will return an error message
         if (!student) {
@@ -67,6 +79,17 @@ const claimFood = async (req, res, next) => {
     try {
         // searching for the student
         const student = await Student.findOne({ studentID: req.params.studentID });
+
+        const claimSetting = await Setting.findOne({ settingName: 'STUDENT-CLAIM' })
+        if (!claimSetting) {
+            res.status(400).json({ message: "Setting not found" });
+        }
+        if (claimSetting.settingEnable === false) {
+            res.status(400).json({ message: "Setting is not enabled, please turn it on" });
+        }
+        if (claimSetting.settingActive === false) {
+            res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
+        }
 
         // if student does not exist, it will return an error message
         if (!student) {
@@ -188,43 +211,50 @@ const deductCredits = async (req, res, next) => {
     }
 };
 
-const deductRemainingCredits = async (req, res, next) => {
+const removeCredits = async (req, res, next) => {
     try {
-        //checking if the student exist
-        const student = await Student.findOne({ studentID: req.params.studentID });
-        if (!student) {
-            return res.status(404).json({ message: 'Student not found' });
+        // Find all students (optionally, add a filter if needed)
+        const students = await Student.find();
+        if (!students || students.length === 0) {
+            return res.status(404).json({ message: 'No students found' });
         }
 
-        //checking if there is remaining balance
-        if (student.creditValue == 0) {
-            return res.status(200).json({message: "student has no remaining balance"})
-        }
-        await logClaimAttempt(student.studentID, 'REMOVED-UNUSED-BALANCE', student.creditValue);
+        const updatedStudents = [];
+
+        for (const student of students) {
+            // Skip if already zero
+            if (student.creditValue === 0) continue;
+
+            await logClaimAttempt(student.studentID, 'REMOVED-UNUSED-BALANCE', student.creditValue);
+
             student.creditValue = 0;
-            student.mealEligibilityStatus = 'Ineligible'
+            student.mealEligibilityStatus = 'Ineligible';
             await student.save();
 
-            const responseData = {
+            updatedStudents.push({
                 studentID: student.studentID,
-                Name: student.name,
-                Course: student.course,
+                name: student.name,
+                course: student.course,
                 mealEligibilityStatus: student.mealEligibilityStatus,
-                creditValue: student.creditValue // Display the new creditValue
-            };
-            res.status(201).json(responseData);
-        // Display the updated student information
+                creditValue: student.creditValue
+            });
+        }
 
+        res.status(200).json({
+            message: 'Credits removed from all students with remaining balance',
+            updatedStudents: updatedStudents
+        });
     } catch (error) {
         next(error);
     }
 };
 
+
 //new function to assign creditValue to student
-const assignCreditValue = async (req, res, next) => {
+const assignCredits = async (req, res, next) => {
     // const assignedCredit = 60;
 
-    const { assignedCredit }  = req.body;
+    const { assignedCredit } = req.body;
     try {
         const student = await Student.findOne({ studentID: req.params.studentID });
 
@@ -234,7 +264,7 @@ const assignCreditValue = async (req, res, next) => {
 
         if (student.creditValue !== 0) {
             return res.status(409).json({ message: "Student already has credit value" });
-        }
+        }   
 
         student.creditValue = assignedCredit;
         await student.save();
@@ -263,6 +293,6 @@ export {
     claimMeal,
     claimFood,
     deductCredits,
-    deductRemainingCredits,
-    assignCreditValue
+    removeCredits,
+    assignCredits
 } 

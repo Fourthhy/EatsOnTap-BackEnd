@@ -1,4 +1,5 @@
 require('dotenv').config()
+const scheduler = require('./utils/scheduler.js')
 
 // server.js
 const app = require('./app');
@@ -8,6 +9,9 @@ const PORT = process.env.PORT || 3000;
 
 // Connect to MongoDB
 connectDB();
+
+//Start Scheduler
+// scheduler.startScheduler();
 
 // Start the server
 app.listen(PORT, () => {

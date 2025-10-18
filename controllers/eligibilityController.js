@@ -3,6 +3,7 @@ import classAdviser from '../models/classAdviser.js';
 import eligibilityBasicEd from '../models/eligibilityBasicEd.js'
 import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
 import student from '../models/student.js'
+import Setting from '../models/setting.js'
 
 
 
@@ -38,6 +39,16 @@ const submitDailyMealRequestList = async (req, res, next) => {
     try {
         const { requesterID, section, forEligibleStudentIDs } = req.body;
 
+        const submitSetting = await Setting.findOne({ settingName: 'SUBMIT-MEAL-REQUEST' })
+        if (!submitSetting) {
+            res.status(400).json({ message: "Setting not found" });
+        }
+        if (submitSetting.settingEnable === false) {
+            res.status(400).json({ message: "Setting is not enabled, please turn it on" });
+        }
+        if (submitSetting.settingActive === false) {
+            res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
+        }
         //check and validate fields
         if (!requesterID || !section || !Array.isArray(forEligibleStudentIDs)) {
             return res.status(400).json({ message: "Missing required fields" })
@@ -142,7 +153,7 @@ const submitScheduledMealRequestList = async (req, res, next) => {
 
         // --- CRITICAL LOGIC CHANGE ---
         // 5. Determine Eligible Students: All students who are NOT waived by default.
-        const forEligible = allStudentIDs.filter(studentID => 
+        const forEligible = allStudentIDs.filter(studentID =>
             !waivedByDefault.has(studentID)
         );
 
