@@ -2,6 +2,9 @@
 import { logClaimAttempt } from "./loggerController.js";
 import Student from "../models/student.js";
 import Setting from "../models/setting.js";
+import Credit from "../models/credit.js";
+import eligibilityBasicEd from "../models/eligibilityBasicEd.js";
+import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 
 // This controller handles all the claim attempts done by the students monitored by respective user roles such as FOOD-SERVER and CANTEEN-STAFF
 
@@ -211,83 +214,64 @@ const deductCredits = async (req, res, next) => {
     }
 };
 
-const removeCredits = async (req, res, next) => {
-    try {
-        // Find all students (optionally, add a filter if needed)
-        const students = await Student.find();
-        if (!students || students.length === 0) {
-            return res.status(404).json({ message: 'No students found' });
-        }
+const removeCredits = async () => {
+    const students = await Student.find();
+    const updatedStudents = [];
 
-        const updatedStudents = [];
+    for (const student of students) {
+        if (student.creditValue === 0) continue;
 
-        for (const student of students) {
-            // Skip if already zero
-            if (student.creditValue === 0) continue;
+        await logClaimAttempt(student.studentID, 'REMOVED-UNUSED-BALANCE', student.creditValue);
 
-            await logClaimAttempt(student.studentID, 'REMOVED-UNUSED-BALANCE', student.creditValue);
-
-            student.creditValue = 0;
-            student.mealEligibilityStatus = 'Ineligible';
-            await student.save();
-
-            updatedStudents.push({
-                studentID: student.studentID,
-                name: student.name,
-                course: student.course,
-                mealEligibilityStatus: student.mealEligibilityStatus,
-                creditValue: student.creditValue
-            });
-        }
-
-        res.status(200).json({
-            message: 'Credits removed from all students with remaining balance',
-            updatedStudents: updatedStudents
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-
-//new function to assign creditValue to student
-const assignCredits = async (req, res, next) => {
-    // const assignedCredit = 60;
-
-    const { assignedCredit } = req.body;
-    try {
-        const student = await Student.findOne({ studentID: req.params.studentID });
-
-        if (!student) {
-            return res.status(404).json({ message: 'Student not found' });
-        }
-
-        if (student.creditValue !== 0) {
-            return res.status(409).json({ message: "Student already has credit value" });
-        }   
-
-        student.creditValue = assignedCredit;
+        student.creditValue = 0;
+        student.mealEligibilityStatus = 'INELIGIBLE';
         await student.save();
 
-        // FIX 4: Added logging
-        await logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', assignedCredit);
-
-        const responseData = {
+        updatedStudents.push({
             studentID: student.studentID,
-            last_name: student.last_name,
-            creditValue: student.creditValue // Display the new creditValue
-        };
-        res.status(200).json(responseData);
-
-    } catch (error) {
-        next(error);
+            name: student.name,
+            course: student.course,
+            mealEligibilityStatus: student.mealEligibilityStatus,
+            creditValue: student.creditValue
+        });
     }
+    return updatedStudents;
+};
+
+//new function to assign creditValue to student
+const assignCredits = async () => {
+    const credit = await Credit.findOne({});
+    if (!credit) {
+        throw new Error("Credit value not found");
+    }
+    const eligibilityListBasicEd = await eligibilityBasicEd.find({ status: 'APPROVED' });
+    const eligibilityListHigherEd = await eligibilityHigherEd.find({ status: 'APPROVED' });
+
+    const studentIds = [
+        ...eligibilityListBasicEd.flatMap(item => item.forEligible),
+        ...eligibilityListHigherEd.flatMap(item => item.forEligible)
+    ];
+    const uniqueStudentIds = Array.from(new Set(studentIds));
+
+    // Now fetch full student docs
+    const students = await Student.find({ studentID: { $in: uniqueStudentIds } });
+
+    const updatedStudents = [];
+    for (const student of students) {
+        student.creditValue = credit.creditValue;
+        await student.save();
+        await logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', credit.creditValue);
+        updatedStudents.push({
+            student: student.studentID,
+            creditValue: student.creditValue
+        });
+    }
+    return updatedStudents;
 }
 
 /* New function to deduct remaining credits 
 This function is created and aligned to "Prevent Carry-over unused credit balance and auto reset of credits"
 */
-
 
 export {
     claimMeal,

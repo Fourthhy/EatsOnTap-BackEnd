@@ -118,7 +118,7 @@ const enableSetting = async () => {
 
         settings.settingEnable = true;
         settings.save();
-        res.status(200).json({ message: `${settings.settingName} is not Enabled`});
+        res.status(200).json({ message: `${settings.settingName} is now Enabled`});
     } catch (error) {
         throw new Error(error)
     }
@@ -130,7 +130,7 @@ const disableSetting = async () => {
 
         settings.settingEnable = false;
         settings.save();
-        res.status(200).json({ message: `${settings.settingName} is not Disabled`});
+        res.status(200).json({ message: `${settings.settingName} is now Disabled`});
     } catch (error) {
         throw new Error(error)
     }

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import Setting from '../models/setting.js';
 const TARGET_TIMEZONE = "Asia/Manila";
+import { assignCredits, removeCredits } from '../controllers/claimController.js';
 
 // Converts '0' to '*', else keeps actual value as string
 const cronField = (value, fieldType) => {
@@ -49,7 +50,30 @@ const disableSetting = async (SETTING_NAME) => {
 };
 
 const executeSetting = async (SETTING_NAME) => {
-
+    switch (SETTING_NAME) {
+        case 'SCHEDULE-ASSIGN-CREDITS':
+            try {
+                await assignCredits();
+                console.log('Assigned credit to all approved students in the eligiblity list');
+            } catch (error ) {
+                console.error('Error in scheduled credit assignment', error)
+            }
+            console.log('----------');
+            console.log(`✅ ${SETTING_NAME}: EXECUTED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+            console.log('----------');
+            break;
+        case 'REMOVE-CREDITS':
+            try {
+                await removeCredits();
+                console.log('Removed credits from all students with remaining balance');
+            } catch (error) {
+                console.error('Error in scheduled credit removal:', error);
+            }
+            console.log('----------');
+            console.log(`✅ ${SETTING_NAME}: EXECUTED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+            console.log('----------');
+            break;
+    }
 }
 
 // Builds cron expressions array for the setting
@@ -106,24 +130,41 @@ const getSettingCronExpressions = async (settingName) => {
 const startScheduler = async () => {
     const allSettings = await Setting.find();
 
-    // Run these once:
+    // Handle SCHEDULE-ASSIGN-CREDITS once (outside the loop)
     if (allSettings.some(s => s.setting === "SCHEDULE-ASSIGN-CREDITS")) {
-        await executeSetting("SCHEDULE-ASSIGN-CREDITS");
-    }
-    if (allSettings.some(s => s.setting === "REMOVE-CREDITS")) {
-        await executeSetting("REMOVE-CREDITS");
+        const expressions = await getSettingCronExpressions("SCHEDULE-ASSIGN-CREDITS");
+        if (expressions && expressions.length > 0) {
+            for (const item of expressions) {
+                if (item.type === 'start') {
+                    cron.schedule(item.expression, () => executeSetting("SCHEDULE-ASSIGN-CREDITS"), {
+                        timezone: TARGET_TIMEZONE
+                    });
+                    console.log(`⏰ Scheduled: START of SCHEDULE-ASSIGN-CREDITS at ${item.expression}`);
+                }
+            }
+        }
     }
 
-    // Schedule for the rest:
+    // Handle REMOVE-CREDITS once (outside the loop)
+    if (allSettings.some(s => s.setting === "REMOVE-CREDITS")) {
+        const expressions = await getSettingCronExpressions("REMOVE-CREDITS");
+        if (expressions && expressions.length > 0) {
+            for (const item of expressions) {
+                if (item.type === 'start') {
+                    cron.schedule(item.expression, () => executeSetting("REMOVE-CREDITS"), {
+                        timezone: TARGET_TIMEZONE
+                    });
+                    console.log(`⏰ Scheduled: START of REMOVE-CREDITS at ${item.expression}`);
+                }
+            }
+        }
+    }
+
+    // Schedule for all other settings
     for (const setting of allSettings) {
         const settingName = setting.setting;
-
-        // Skip the one-time jobs
-        if (
-            settingName === "SCHEDULE-ASSIGN-CREDITS" ||
-            settingName === "REMOVE-CREDITS"
-        ) {
-            continue;
+        if (settingName === "SCHEDULE-ASSIGN-CREDITS" || settingName === "REMOVE-CREDITS") {
+            continue; // already scheduled above
         }
 
         const expressions = await getSettingCronExpressions(settingName);
@@ -145,11 +186,12 @@ const startScheduler = async () => {
             cron.schedule(item.expression, taskFunction, {
                 timezone: TARGET_TIMEZONE
             });
-            console.log(`✅ Scheduled: ${item.type.toUpperCase()} of ${settingName} at ${item.expression}`);
+            console.log(`⏰ Scheduled: ${item.type.toUpperCase()} of ${settingName} at ${item.expression}`);
         }
     }
     console.log(`\nCron Scheduler is running and configured for ${TARGET_TIMEZONE}.`);
 };
+
 
 
 
