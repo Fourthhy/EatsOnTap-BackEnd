@@ -241,6 +241,11 @@ const removeCredits = async () => {
 //new function to assign creditValue to student
 const assignCredits = async () => {
     const credit = await Credit.findOne({});
+    const SETTING_NAME = 'SCHEDULE-ASSIGN-CREDITS'
+    const AssignCredits = await Setting.findOne({ setting: SETTING_NAME});
+
+
+
     if (!credit) {
         throw new Error("Credit value not found");
     }

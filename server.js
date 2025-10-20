@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 connectDB();
 
 //Start Scheduler
-// scheduler.startScheduler();
+scheduler.startScheduler();
 
 // Start the server
 app.listen(PORT, () => {
