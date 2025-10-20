@@ -241,16 +241,19 @@ const removeCredits = async () => {
 //new function to assign creditValue to student
 const assignCredits = async () => {
     const credit = await Credit.findOne({});
-    const SETTING_NAME = 'SCHEDULE-ASSIGN-CREDITS'
-    const AssignCredits = await Setting.findOne({ setting: SETTING_NAME});
-
-
 
     if (!credit) {
         throw new Error("Credit value not found");
     }
-    const eligibilityListBasicEd = await eligibilityBasicEd.find({ status: 'APPROVED' });
-    const eligibilityListHigherEd = await eligibilityHigherEd.find({ status: 'APPROVED' });
+
+    const eligibilityListBasicEd = await eligibilityBasicEd.find(
+        { status: 'APPROVED' },
+        { creditAssigned: false }
+    );
+    const eligibilityListHigherEd = await eligibilityHigherEd.find(
+        { status: 'APPROVED' },
+        { creditAssigned: false }
+    );
 
     const studentIds = [
         ...eligibilityListBasicEd.flatMap(item => item.forEligible),
@@ -271,6 +274,11 @@ const assignCredits = async () => {
             creditValue: student.creditValue
         });
     }
+    eligibilityListBasicEd.creditAssigned = true;
+    eligibilityListBasicEd.save();
+    
+    eligibilityListHigherEd.creditAssigned = true;
+    eligibilityListHigherEd.save();
     return updatedStudents;
 }
 

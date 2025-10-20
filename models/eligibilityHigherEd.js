@@ -9,7 +9,8 @@ const eligibilityHigherEdSchema = new mongoose.Schema({
     forEligible: { type: [String], required: true},
     forWaived: { type: [String], required: true },
     forDay: { type: String, enum: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'], required: true},
-    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: "PENDING"}
+    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: "PENDING"},
+    creditAssigned: { type: Boolean, required: true, default: false }
 });
 
 module.exports = mongoose.model('eligibilityHigherEd', eligibilityHigherEdSchema);

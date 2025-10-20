@@ -4,9 +4,9 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 
 //Router for approving meal eligibility list for basic ed
-router.put('/:eligibilityID/basicEdApprove', adminController.approveMealEligibilityRequest);
+router.put('/basicEdApprove/:eligibilityID', adminController.approveMealEligibilityRequest);
 
 //Router for approving scheduled meal eligibility list for higher ed
-router.put('/:eligibilityID/higherEdApprove', adminController.approveScheduleMealEligibilityRequest);
+router.put('/higherEdApprove/:eligibilityID', adminController.approveScheduleMealEligibilityRequest);
 
 module.exports = router;

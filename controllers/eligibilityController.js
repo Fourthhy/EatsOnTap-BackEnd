@@ -39,7 +39,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
     try {
         const { requesterID, section, forEligibleStudentIDs } = req.body;
 
-        const submitSetting = await Setting.findOne({ settingName: 'SUBMIT-MEAL-REQUEST' })
+        const submitSetting = await Setting.findOne({ setting: 'SUBMIT-MEAL-REQUEST' })
         if (!submitSetting) {
             res.status(400).json({ message: "Setting not found" });
         }
