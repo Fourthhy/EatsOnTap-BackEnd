@@ -11,4 +11,6 @@ router.put('/enableSetting/:SETTING_NAME', setttingController.enableSetting);
 
 router.put('/disableSetting/:SETTING_NAME', setttingController.disableSetting);
 
+router.put('/editSetting', setttingController.editSetting);
+
 module.exports = router;

@@ -1,6 +1,5 @@
 import cron from 'node-cron';
 import Setting from '../models/setting.js';
-import Event from '../models/event.js';
 const TARGET_TIMEZONE = "Asia/Manila";
 import { assignCredits, removeCredits, assignCreditsForEvents } from '../controllers/claimController.js';
 

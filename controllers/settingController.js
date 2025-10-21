@@ -1,5 +1,5 @@
 import setting from "../models/setting.js";
-import cron from 'node-cron';
+import { startScheduler } from "../utils/scheduler.js";
 
 const createDefaultSetting = async (req, res, next) => {
     try {
@@ -136,11 +136,62 @@ const disableSetting = async () => {
     }
 }
 
+const editSetting = async (req, res, next) => {
+    try {
+        const {
+            settingName,
+            settingEnable,
+            startMinute,
+            endMinute,
+            startHour,
+            endHour,
+            startDay,
+            endDay,
+            startMonth,
+            endMonth,
+            startDayOfWeek,
+            endDayOfWeek
+        } = req.body;
+
+        // Find the existing setting document
+        const existingSetting = await setting.findOne({ setting: settingName });
+
+        if (!existingSetting) {
+            return res.status(404).json({ message: `Setting '${setting}' not found` });
+        }
+
+        // Update only provided values; keep current value if undefined
+        if (settingEnable !== undefined) existingSetting.settingEnable = settingEnable;
+        if (startMinute !== undefined) existingSetting.startMinute = startMinute;
+        if (endMinute !== undefined) existingSetting.endMinute = endMinute;
+        if (startHour !== undefined) existingSetting.startHour = startHour;
+        if (endHour !== undefined) existingSetting.endHour = endHour;
+        if (startDay !== undefined) existingSetting.startDay = startDay;
+        if (endDay !== undefined) existingSetting.endDay = endDay;
+        if (startMonth !== undefined) existingSetting.startMonth = startMonth;
+        if (endMonth !== undefined) existingSetting.endMonth = endMonth;
+        if (startDayOfWeek !== undefined) existingSetting.startDayOfWeek = startDayOfWeek;
+        if (endDayOfWeek !== undefined) existingSetting.endDayOfWeek = endDayOfWeek;
+
+        await existingSetting.save();
+
+        res.status(200).json({ message: `Setting '${setting}' updated successfully`, setting: existingSetting });
+        await startScheduler();
+
+    } catch (error) {
+        next(error); // Use next to pass error to Express error handler
+    }
+};
+
+
+
+
 
 
 export {
     createDefaultSetting,
     fetchSetting,
     enableSetting,
-    disableSetting
+    disableSetting,
+    editSetting
 }
