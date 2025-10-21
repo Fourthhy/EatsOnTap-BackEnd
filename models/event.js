@@ -1,20 +1,17 @@
 const mongoose = require('mongoose');
 
-const eventSchema = mongoose.model({
+const eventSchema = new mongoose.Schema({
+    eventID: { type: String, required: true },
     eventName: { type: String, required: true },
-    eventScope: { type: String, required: true, enum: ['BASIC-EDUCATION', 'HIGHER-EDUCATION', 'ALL'] },
-    startMinute: { type: String, required: true },
-    endMinute: { type: String, required: true },
-    startHour: { type: String, required: true },
-    endHour: { type: String, required: true },
     startDay: { type: String, required: true },
     endDay: { type: String, required: true },
-    startMonth: { type: String, required: true },
-    endMonth: { type: String, required: true },
-    startDayOfWeek: { type: String, required: true },
-    endDayOfWeek: { type: String, required: true },
-})
-
-//time properties is the same as the setting model
+    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+    forEligibleSection: [String],
+    forEligibleProgramsAndYear: [{
+        program: { type: String, required: true },
+        year: { type: String, required: true }
+    }],
+    forTemporarilyWaived: { type: [String], required: true },
+});
 
 module.exports = mongoose.model('Event', eventSchema);

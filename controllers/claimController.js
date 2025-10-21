@@ -3,6 +3,7 @@ import { logClaimAttempt } from "./loggerController.js";
 import Student from "../models/student.js";
 import Setting from "../models/setting.js";
 import Credit from "../models/credit.js";
+import event from "../models/event.js";
 import eligibilityBasicEd from "../models/eligibilityBasicEd.js";
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 
@@ -239,29 +240,26 @@ const removeCredits = async () => {
 };
 
 //new function to assign creditValue to student
-const assignCredits = async () => {
+const assignCredits = async (dayToday) => {
     const credit = await Credit.findOne({});
+    if (!credit) throw new Error("Credit value not found");
 
-    if (!credit) {
-        throw new Error("Credit value not found");
-    }
-
-    const eligibilityListBasicEd = await eligibilityBasicEd.find(
-        { status: 'APPROVED' },
-        { creditAssigned: false }
+    const eligibilityListBasicEduc = await eligibilityBasicEd.find(
+        { status: 'APPROVED', creditAssigned: false } // all as filter
     );
-    const eligibilityListHigherEd = await eligibilityHigherEd.find(
-        { status: 'APPROVED' },
-        { creditAssigned: false }
+    const eligibilityListHigherEduc = await eligibilityHigherEd.find(
+        { status: 'APPROVED', creditAssigned: false, forDay: dayToday } // all as filter
     );
 
     const studentIds = [
-        ...eligibilityListBasicEd.flatMap(item => item.forEligible),
-        ...eligibilityListHigherEd.flatMap(item => item.forEligible)
+        ...eligibilityListBasicEduc.flatMap(item => item.forEligible),
+        ...eligibilityListHigherEduc.flatMap(item => item.forEligible)
     ];
+    console.log(eligibilityListHigherEduc.map(doc => doc.forEligible));
+
     const uniqueStudentIds = Array.from(new Set(studentIds));
 
-    // Now fetch full student docs
+    // Fetch full student docs
     const students = await Student.find({ studentID: { $in: uniqueStudentIds } });
 
     const updatedStudents = [];
@@ -274,13 +272,77 @@ const assignCredits = async () => {
             creditValue: student.creditValue
         });
     }
-    eligibilityListBasicEd.creditAssigned = true;
-    eligibilityListBasicEd.save();
-    
-    eligibilityListHigherEd.creditAssigned = true;
-    eligibilityListHigherEd.save();
+
+    // Correct: Loop through each doc and mark as assigned
+    for (const doc of eligibilityListBasicEduc) {
+        doc.creditAssigned = true;
+        await doc.save();
+    }
+    for (const doc of eligibilityListHigherEduc) {
+        doc.creditAssigned = true;
+        await doc.save();
+    }
     return updatedStudents;
 }
+
+const assignCreditsForEvents = async () => {
+    const now = new Date();
+    const dateToday = now.getDate(); // day of the month (1-31)
+
+    const approvedEvents = await event.find({ status: 'APPROVED' });
+
+    for (const ev of approvedEvents) {
+        // Make sure to use ev.startDay and ev.endDay (as string, convert to number for comparison)
+        // You may also want to check the month or year, if needed.
+        const startDay = parseInt(ev.startDay, 10);
+        const endDay = parseInt(ev.endDay, 10);
+
+        if (dateToday >= startDay && dateToday <= endDay) {
+            // Eligible sections
+            const approvedSections = ev.forEligibleSection; // e.g., ['Romans', 'Galatians']
+
+            // Eligible programs and year - array of objects
+            const approvedProgramsAndYears = ev.forEligibleProgramsAndYear; // e.g., [{program: 'BSCS', year: '2'}, ...]
+
+            // Waived students for today
+            const temporarilyWaivedStudents = ev.forTemporarilyWaived; // e.g., ['johndoe123', 'janedoe456']
+
+            // Query to find students meeting the event eligibility
+            // Example: Find students in eligible sections and/or programs/year, and not in waived list
+            const query = {
+                $or: [
+                    { section: { $in: approvedSections } },
+                    ...approvedProgramsAndYears.map(pair => ({
+                        program: pair.program,
+                        year: pair.year
+                    }))
+                ],
+                studentID: { $nin: temporarilyWaivedStudents }
+            };
+
+            const eligibleStudents = await Student.find(query);
+
+            // Assign credits to all those students
+            const credit = await Credit.findOne({});
+            const updatedStudents = [];
+
+            for (const student of eligibleStudents) {
+                student.creditValue = credit.creditValue;
+                await student.save();
+                await logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', credit.creditValue);
+                updatedStudents.push({
+                    studentID: student.studentID,
+                    creditValue: student.creditValue
+                });
+            }
+
+            console.log(`✅ Assigned credits for event '${ev.eventName}' (${ev.eventID}) - ${updatedStudents.length} students`);
+            // You can return or handle updatedStudents as needed
+        }
+    }
+};
+
+
 
 /* New function to deduct remaining credits 
 This function is created and aligned to "Prevent Carry-over unused credit balance and auto reset of credits"
@@ -291,5 +353,6 @@ export {
     claimFood,
     deductCredits,
     removeCredits,
-    assignCredits
+    assignCredits,
+    assignCreditsForEvents
 } 

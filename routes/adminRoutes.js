@@ -9,4 +9,6 @@ router.put('/basicEdApprove/:eligibilityID', adminController.approveMealEligibil
 //Router for approving scheduled meal eligibility list for higher ed
 router.put('/higherEdApprove/:eligibilityID', adminController.approveScheduleMealEligibilityRequest);
 
+router.put('/approveEvent/:eventID', adminController.approveEvents);
+
 module.exports = router;

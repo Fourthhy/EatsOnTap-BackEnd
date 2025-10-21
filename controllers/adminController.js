@@ -1,6 +1,7 @@
 import Users from '../models/user.js';
 import eligibilityBasicEd from '../models/eligibilityBasicEd.js';
 import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
+import event from "../models/event.js";
 
 //Approving Meal Eligibility Request and Scheduled Meal Eligibiltiy Request
 
@@ -36,7 +37,22 @@ const approveScheduleMealEligibilityRequest = async (req, res) => {
     }
 }
 
+const approveEvents = async (req, res) => {
+    try {
+        const schoolEvent = await event.findOne({ eventID: req.params.eventID });
+        if (!schoolEvent) {
+            res.status(404).json({ message: "No such event exist!" });
+        }
+        schoolEvent.status = 'APPROVED';
+        await schoolEvent.save()
+        res.status(200).json({ message: `${schoolEvent.eventName} event is now approved!` });
+    } catch (error) {
+        throw new Error(error)
+    }
+}
+
 export {
     approveMealEligibilityRequest,
-    approveScheduleMealEligibilityRequest
+    approveScheduleMealEligibilityRequest,
+    approveEvents
 }

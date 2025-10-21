@@ -13,7 +13,7 @@ router.put('/:studentID/claim-foodItem', userAuthentication.authSecurity, userAu
 // New route for deducting credits
 router.put('/:studentID/deduct-credits', claimController.deductCredits);
 //new route for assigning credits
-router.put('/:studentID/assign-credit', claimController.assignCredits);
+router.put('/assign-credit', claimController.assignCredits);
 //new route for deducting remaining credits
 router.put('/:studentID/remove-credits', claimController.removeCredits);
 

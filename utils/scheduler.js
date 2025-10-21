@@ -1,7 +1,8 @@
 import cron from 'node-cron';
 import Setting from '../models/setting.js';
+import Event from '../models/event.js';
 const TARGET_TIMEZONE = "Asia/Manila";
-import { assignCredits, removeCredits } from '../controllers/claimController.js';
+import { assignCredits, removeCredits, assignCreditsForEvents } from '../controllers/claimController.js';
 
 // Converts '0' to '*', else keeps actual value as string
 const cronField = (value, fieldType) => {
@@ -50,10 +51,18 @@ const settingInactive = async (SETTING_NAME) => {
 };
 
 const executeSetting = async (SETTING_NAME) => {
+    const dayOfWeek = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+    const now = new Date();
+    const todayIndex = now.getDay();
+    const dayToday = dayOfWeek[todayIndex];
+
     switch (SETTING_NAME) {
         case 'SCHEDULE-ASSIGN-CREDITS':
             try {
-                await assignCredits();
+                //assign every day credits
+                await assignCredits(dayToday);
+                //asign event based credits
+                await assignCreditsForEvents();
                 console.log('Assigned credit to all approved students in the eligiblity list');
             } catch (error) {
                 console.error('Error in scheduled credit assignment', error)
@@ -75,6 +84,9 @@ const executeSetting = async (SETTING_NAME) => {
             break;
     }
 }
+
+
+
 
 // Builds cron expressions array for the setting
 const getSettingCronExpressions = async (settingName) => {
@@ -124,7 +136,6 @@ const getSettingCronExpressions = async (settingName) => {
         }
     ];
 };
-
 
 // Scheduler that loops over all settings.
 const startScheduler = async () => {
