@@ -3,6 +3,11 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://eats-on-tap-front-end.vercel.app'
+];
+
 const studentRoutes = require('./routes/studentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
@@ -21,9 +26,20 @@ const app = express();
 
 //CORS Middleware
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://https://eats-on-tap-front-end.vercel.app'], // allow from your frontend
-    credentials: true // only include this if you send cookies/auth
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: 'GET,POST,PUT,DELETE,OPTIONS',
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// handle preflight requests
+app.options('*', cors());
 
 //body parser
 app.use(bodyParser.json());
