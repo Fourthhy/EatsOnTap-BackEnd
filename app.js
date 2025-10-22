@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 
-const bodyParser = require('body-parser');
 const studentRoutes = require('./routes/studentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
