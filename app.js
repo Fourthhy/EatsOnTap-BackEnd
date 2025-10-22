@@ -21,7 +21,7 @@ const app = express();
 
 //CORS Middleware
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://https://eats-on-tap-front-end.vercel.app/'], // allow from your frontend
+    origin: ['http://localhost:5173', 'https://https://eats-on-tap-front-end.vercel.app'], // allow from your frontend
     credentials: true // only include this if you send cookies/auth
 }));
 
