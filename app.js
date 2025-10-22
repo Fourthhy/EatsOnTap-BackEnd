@@ -1,5 +1,7 @@
 // app.js
 const express = require('express');
+const cors = require('cors');
+
 const bodyParser = require('body-parser');
 const studentRoutes = require('./routes/studentRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -33,6 +35,11 @@ app.use('/api/logger', loggerRoutes) //Prefix all logger routes with /api/logger
 app.use('/api/setting', settingRoutes) //Prefix all authentication routes with /api/setting
 app.use('/api/students', studentRoutes); // Prefix all student routes with /api/students
 app.use('/api/users', userRoutes) //Prefix all user routes with /api/useres
+
+app.use(cors({
+  origin: 'http://localhost:5173', // allow from your frontend
+  credentials: true // only include this if you send cookies/auth
+}));
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler); // <-- This is where the middleware is applied
