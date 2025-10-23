@@ -9,4 +9,10 @@ router.post('/login', authController.loginUser);
 //Router for user logout
 router.post('/logout', authController.logoutUser);
 
+//Router for class adviser login
+router.post('/loginClassAdviser', authController.loginClassAdviser);
+
+//Router for class adviser logout
+router.post('/logoutClassAdviser', authController.logoutClassAdviser);
+
 module.exports = router;
