@@ -40,6 +40,19 @@ const getStudentById = async (req, res, next) => {
   }
 };
 
+//fetch student by section
+const getStudentBySection = async (req, res, next) => {
+  try {
+    const students = await Student.find({ section: req.params.sectionName });
+    if (!students) {
+      return res.status(404).json({ message: `cant find students in ${sectionName} section` })
+    }
+    res.json({students});
+  } catch (error) {
+    next(error);
+  }
+}
+
 //Create students from CSV
 const creteStudentFromCSV = async (req, res, next) => {
   //checking if there is an file uploaded
@@ -129,5 +142,6 @@ export {
   getStudentById,
   creteStudentFromCSV,
   waiveStudent,
-  eligibleStudent
+  eligibleStudent,
+  getStudentBySection
 }

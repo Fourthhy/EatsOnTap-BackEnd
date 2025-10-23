@@ -24,4 +24,7 @@ router.put('/:studentID/waiveStatus', studentController.waiveStudent);
 //Route for deem student Eligible 
 router.put('/:studentID/eligibleStatus', studentController.eligibleStudent);
 
+//Route for fetch students using course
+router.get('/getSection/:sectionName', studentController.getStudentBySection);
+
 module.exports = router;
