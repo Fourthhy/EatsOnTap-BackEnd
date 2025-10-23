@@ -9,7 +9,7 @@ const upload = require('../middlewares/multer.js').default;
 router.post('/', usercontroller.createUser);
 
 //New route for getting all users
-router.get('/', usercontroller.getUsers);
+router.get('/getAllUsers', usercontroller.getUsers);
 
 //New route for adding users using CSV
 router.post('/usingCSV', upload.single('user_information'), usercontroller.createUsersFromCSV)
