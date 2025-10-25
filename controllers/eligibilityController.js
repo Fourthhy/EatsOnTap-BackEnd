@@ -50,8 +50,16 @@ const submitDailyMealRequestList = async (req, res, next) => {
             res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
         }
         //check and validate fields
-        if (!requesterID || !section || !Array.isArray(forEligibleStudentIDs)) {
-            return res.status(400).json({ message: "Missing required fields" })
+        if (!requesterID) {
+            return res.status(400).json({ message: "Missing required field: requesterID" })
+        }
+
+        if (!section) {
+            return res.status(400).json({ message: "Missing required field: section" })
+        }
+
+        if (!Array.isArray(forEligibleStudentIDs)) {
+            return res.status(400).json({ message: "Missing required field: forEligibleStudentIDs" })
         }
 
         //check if the classadviser accessing is the current section adviser (OPTIONAL but for safety)
