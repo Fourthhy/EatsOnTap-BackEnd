@@ -9,4 +9,7 @@ router.post('/submitListforBasicEduc', eligibilityController.submitDailyMealRequ
 //Route for submitting scheduled meal request list for higher ed
 router.post('/submitListforHigherEduc', eligibilityController.submitScheduledMealRequestList);
 
+//Route for fetching meal request list by section
+router.get('/fetchRequestsBySection', eligibilityController.fetchDailyRequestsBySection);
+
 module.exports = router;

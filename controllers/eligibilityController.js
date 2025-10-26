@@ -201,6 +201,23 @@ const submitScheduledMealRequestList = async (req, res, next) => {
     }
 }
 
+const fetchDailyRequestsBySection = async (req, res, next) => {
+    try {
+        const { section } = req.body;
+        const sectionRequest = await eligibilityBasicEd.findOne({ section: section })
+        if (!sectionRequest) {
+            res.status(404).json({ message: "Section not found" });
+        }
+        res.status(200).json({ sectionRequest })
+    } catch (error) {
+        next(error)
+    }
+}
+
+const fetchScheduledRequestsByDayOfWeek = async (dayOfWeek) => {
+
+}
+
 //when admin approved the request, create a function that will scan the status of an meal eligibiltity request (scheduled and note scheduled). if APPROVED, create a function that will "mass eligible" and "mass waive" the students from the eligibility list.
 
 //for basic education, the function has a parameter of the class adviser's ID, which naturally prevents them to submit another list, the class adviser's ID will act as the eligiblity ID of the list they submitted.
@@ -214,5 +231,6 @@ that will server as the eligibility ID of the list they submitted.
 
 export {
     submitDailyMealRequestList,
-    submitScheduledMealRequestList
+    submitScheduledMealRequestList,
+    fetchDailyRequestsBySection
 }
