@@ -203,8 +203,7 @@ const submitScheduledMealRequestList = async (req, res, next) => {
 
 const fetchDailyRequestsBySection = async (req, res, next) => {
     try {
-        const { section } = req.body;
-        const sectionRequest = await eligibilityBasicEd.findOne({ section: section })
+        const sectionRequest = await eligibilityBasicEd.findOne({ section: req.params.section })
         if (!sectionRequest) {
             res.status(404).json({ message: "Section not found" });
         }
