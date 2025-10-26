@@ -41,13 +41,13 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         const submitSetting = await Setting.findOne({ setting: 'SUBMIT-MEAL-REQUEST' })
         if (!submitSetting) {
-            res.status(400).json({ message: "Setting not found" });
+            return res.status(400).json({ message: "Setting not found" });
         }
         if (submitSetting.settingEnable === false) {
-            res.status(400).json({ message: "Setting is not enabled, please turn it on" });
+            return res.status(400).json({ message: "Setting is not enabled, please turn it on" });
         }
         if (submitSetting.settingActive === false) {
-            res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
+            return res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
         }
         //check and validate fields
         if (!requesterID) {
