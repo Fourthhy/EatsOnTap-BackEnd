@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 
 const studentSchema = new mongoose.Schema({
+  rfidTag: { type: String },
   studentID: { type: String, required: true, unique: true },
   first_name: { type: String, required: true },
   middle_name: { type: String, required: true },
