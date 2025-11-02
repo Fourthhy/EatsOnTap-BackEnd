@@ -11,4 +11,8 @@ router.put('/higherEdApprove/:eligibilityID', adminController.approveScheduleMea
 
 router.put('/approveEvent/:eventID', adminController.approveEvents);
 
+//routers for fetching data and analytics
+
+router.get('/fetchClaimPerMealCount', adminController.fetchClaimPerMealCount);
+
 module.exports = router;

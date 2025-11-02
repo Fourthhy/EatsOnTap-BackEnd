@@ -86,5 +86,6 @@ const fetchClaimPerMealCount = async (req, res, next) => {
 export {
     approveMealEligibilityRequest,
     approveScheduleMealEligibilityRequest,
-    approveEvents
+    approveEvents,
+    fetchClaimPerMealCount
 }
