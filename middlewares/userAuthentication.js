@@ -112,6 +112,8 @@ export {
   foodServerAuth,
   canteenStaffAuth,
   adminAuth,
+  adminAssistantAuth,
+  classAdviserAuth,
   superAdminAuth,
   chancellorAuth
 };

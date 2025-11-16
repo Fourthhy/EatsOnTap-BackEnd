@@ -14,17 +14,19 @@ router.get('/getAllStudents', studentController.getAllStudents);
 //Route for fetching student with specified ID
 router.get('/:studentID', studentController.getStudentById);
 
+/* ==== ADMIN CONTROLS ==== */
+
 //Route for adding students using csv
 router.post('/usingCSV', upload.single('students_information'), studentController.creteStudentFromCSV);
-// router.post('/usingCSV', studentController.creteStudentFromCSV);
 
 //Route for deem student Waived
-router.put('/:studentID/waiveStatus', studentController.waiveStudent);
+router.put('/waiveStatus/:studentID', studentController.waiveStudent);
 
 //Route for deem student Eligible 
 router.put('/:studentID/eligibleStatus', studentController.eligibleStudent);
 
-//Route for fetch students using course
+
+//Route for fetch students using course for class adivser eligiblity
 router.get('/getSection/:sectionName', studentController.getStudentBySection);
 
 module.exports = router;
