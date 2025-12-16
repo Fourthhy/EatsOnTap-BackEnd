@@ -11,7 +11,8 @@ const studentSchema = new mongoose.Schema({
   program: { type: String }, //for higher education
   year: { type: String, required: true },
   mealEligibilityStatus: { type: String, enum: ['ELIGIBLE', 'INELIGIBLE', 'CLAIMED', 'WAIVED'], default: 'INELIGIBLE' },
-  creditValue: { type: Number, default: 0 }
+  creditValue: { type: Number, default: 0 },
+  rfidTag: { type: String, default: null },
 });
 
 module.exports = mongoose.model('Student', studentSchema);

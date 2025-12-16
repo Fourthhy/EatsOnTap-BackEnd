@@ -135,6 +135,60 @@ const eligibleStudent = async (req, res, next) => {
   }
 }
 
+const studentRFIDLinking = async (req, res, next) => {
+  try {
+    // 1. Find the student using the ID from the URL parameters
+    const student = await Student.findOne({ studentID: req.params.studentID });
+
+    // 2. Validate: Did we find a student?
+    if (!student) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Student not found.' 
+      });
+    }
+
+    // 3. Get the new RFID tag. 
+    // Best Practice: Use req.body for data updates, not req.params.
+    const { rfidTag } = req.body; 
+
+    if (!rfidTag) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'rfidTag is required in the request body.' 
+      });
+    }
+
+    // 4. Validate: Check if this RFID is already assigned to *another* student
+    // This prevents two students from sharing the same card.
+    const existingUser = await Student.findOne({ rfidTag });
+    if (existingUser) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'This RFID tag is already linked to another student.' 
+      });
+    }
+
+    // 5. Update and Save
+    student.rfidTag = rfidTag;
+    await student.save();
+
+    // 6. Send success response
+    res.status(200).json({
+      success: true,
+      message: 'RFID linked successfully.',
+      data: {
+        studentID: student.studentID,
+        rfidTag: student.rfidTag,
+        name: `${student.first_name} ${student.last_name}`
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+}
+
 
 export {
   createStudent,
@@ -143,5 +197,6 @@ export {
   creteStudentFromCSV,
   waiveStudent,
   eligibleStudent,
-  getStudentBySection
+  getStudentBySection,
+  studentRFIDLinking
 }

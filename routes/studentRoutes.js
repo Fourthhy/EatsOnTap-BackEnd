@@ -29,4 +29,7 @@ router.put('/:studentID/eligibleStatus', studentController.eligibleStudent);
 //Route for fetch students using course for class adivser eligiblity
 router.get('/getSection/:sectionName', studentController.getStudentBySection);
 
+//Route for Student ID - RFID Linking
+router.put('/rfidLink/:studentID', studentController.studentRFIDLinking);
+
 module.exports = router;

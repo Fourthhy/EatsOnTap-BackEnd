@@ -13,9 +13,18 @@ import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 const claimMeal = async (req, res, next) => {
     try {
         // searching for the student
-        const student = await Student.findOne({ studentID: req.params.studentID });
 
-        const claimSetting = await Setting.findOne({ settingName: 'STUDENT-CLAIM' })
+        const { studentInput } = req.body;
+        const hyphenRegex = /-/;
+        // 1. Determine the key to search by
+        const searchKey = hyphenRegex.test(studentInput) ? 'studentID' : 'rfidTag';
+
+        // 2. Perform the search once
+        const student = await Student.findOne({
+            [searchKey]: studentInput
+        });
+
+        const claimSetting = await Setting.findOne({ setting: 'STUDENT-CLAIM' })
         if (!claimSetting) {
             res.status(400).json({ message: "Setting not found" });
         }
