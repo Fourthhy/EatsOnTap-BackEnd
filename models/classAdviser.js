@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const classAdviserSchema = new mongoose.Schema({
     userID: { type: String, required: true, unique: true },
+    honorific: { type: String, enum: ["Mr.", "Ms."], required: true,  },
     first_name: { type: String },
     middle_name: { type: String },
     last_name: { type: String },

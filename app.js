@@ -16,6 +16,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const settingRoutes = require('./routes/settingRoutes');
 const creditRoutes = require('./routes/creditRoutes');
 const eventRoutes = require('./routes/eventRoutes');
+const fetchRoutes = require('./routes/fetchRoutes');
 const errorHandler = require('./middlewares/eventHandler');
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/classAdviser', classAdviserRoutes);
 app.use('/api/credit', creditRoutes);
 app.use('/api/eligibility', eligibilityRoutes);
 app.use('/api/event', eventRoutes);
+app.use('/api/fetch', fetchRoutes);
 app.use('/api/logger', loggerRoutes);
 app.use('/api/setting', settingRoutes);
 app.use('/api/students', studentRoutes);
