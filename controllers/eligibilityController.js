@@ -203,13 +203,29 @@ const submitScheduledMealRequestList = async (req, res, next) => {
 
 const fetchDailyRequestsBySection = async (req, res, next) => {
     try {
-        const sectionRequest = await eligibilityBasicEd.findOne({ section: req.params.section })
-        if (!sectionRequest) {
-            res.status(404).json({ message: "Section not found" });
-        }
-        res.status(200).json({ sectionRequest })
+        const { section } = req.params;
+
+        // 1. Get the time range for "Today"
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 2. Check existence using 'timeStamp' (MATCHING YOUR SCHEMA)
+        const existingRecord = await eligibilityBasicEd.findOne({
+            section: section,
+            timeStamp: {
+                $gte: startOfDay,
+                $lte: endOfDay
+            }
+        });
+
+        // 3. Return true/false
+        res.status(200).json(!!existingRecord);
+
     } catch (error) {
-        next(error)
+        next(error);
     }
 }
 

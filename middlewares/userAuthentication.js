@@ -9,10 +9,17 @@ const authSecurity = (req, res, next) => {
   // The token is usually sent as: Authorization: Bearer <token>
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
+
+      console.log('--- Incoming Request Headers ---');
+      console.log(req.headers); // 👈 Print ALL headers to see what is actually there
+      console.log('--------------------------------');
+      
       // Get token from header (split "Bearer <token>" and take the second element)
       token = req.headers.authorization.split(' ')[1];
 
       //Verify token
+      console.log("Token received:", token);
+      console.log("Secret used:", process.env.JWT_SECRET);
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Attach user data to the request object
@@ -107,6 +114,21 @@ const chancellorAuth = (req, res, next) => {
   }
 }
 
+const checkRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    // DEBUGGING LOG
+    console.log('User Role from Token:', req.user?.role);
+    console.log('Allowed Roles:', allowedRoles);
+
+    if (req.user && allowedRoles.includes(req.user.role)) {
+      next();
+    } else {
+      const message = `Forbidden: Requires one of these roles: ${allowedRoles.join(', ')} \n User role from token: ${req.user?.role} \n Allowed roles: ${allowedRoles.join(', ')}`;
+      res.status(403).json({ message: message });
+    }
+  };
+};
+
 export {
   authSecurity,
   foodServerAuth,
@@ -115,5 +137,6 @@ export {
   adminAssistantAuth,
   classAdviserAuth,
   superAdminAuth,
-  chancellorAuth
+  chancellorAuth,
+  checkRole
 };

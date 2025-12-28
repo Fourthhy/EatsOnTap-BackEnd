@@ -1,7 +1,9 @@
-// routes/studentRoutes.js
+// IMPORTS
 const express = require('express');
 const router = express.Router();
 const studentController = require('../controllers/studentController');
+const userAuthentication = require('../middlewares/userAuthentication');
+
 // import upload  from '../middlewares/multer.js'
 const upload = require('../middlewares/multer.js').default;
 
@@ -25,11 +27,11 @@ router.put('/waiveStatus/:studentID', studentController.waiveStudent);
 //Route for deem student Eligible 
 router.put('/:studentID/eligibleStatus', studentController.eligibleStudent);
 
-
-//Route for fetch students using course for class adivser eligiblity
-router.get('/getSection/:sectionName', studentController.getStudentBySection);
-
 //Route for Student ID - RFID Linking
 router.put('/rfidLink/:studentID', studentController.studentRFIDLinking);
+
+//Route for fetch students using course for class adivser eligiblity
+router.get('/getSection/:sectionName', userAuthentication.authSecurity, userAuthentication.checkRole('CLASS-ADVISER'), studentController.getStudentBySection);
+
 
 module.exports = router;

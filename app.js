@@ -3,11 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://eats-on-tap-front-end.vercel.app'
-];
-
+// ... imports remain the same ...
 const studentRoutes = require('./routes/studentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
@@ -20,46 +16,58 @@ const adminRoutes = require('./routes/adminRoutes');
 const settingRoutes = require('./routes/settingRoutes');
 const creditRoutes = require('./routes/creditRoutes');
 const eventRoutes = require('./routes/eventRoutes');
-const errorHandler = require('./middlewares/eventHandler'); // <-- Ensure this path is correct
+const errorHandler = require('./middlewares/eventHandler');
 
 const app = express();
 
-//CORS Middleware
-app.use(cors({
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://eats-on-tap-front-end.vercel.app'
+];
+
+// 1. Define CORS options separately so they can be reused
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
-  methods: 'GET,POST,PUT,DELETE,OPTIONS',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Array is preferred
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
 
-// handle preflight requests
-app.options('/{*all}', cors());
+// 2. Apply CORS middleware globally with options
+app.use(cors(corsOptions));
 
+// 3. Handle Preflight requests specifically
+// Use '*' to match ALL routes, and pass the SAME corsOptions
+app.options(/(.*)/, cors(corsOptions));
 
-//body parser
+// body parser
 app.use(bodyParser.json());
 
 // Routes
-app.use('/api/adminAssistant', adminAssistantRoutes) //Prefix all authentication routes with /api/adminAssistant
-app.use('/api/admin', adminRoutes) //Prefix all authentication routes with /api/admin
-app.use('/api/auth', authRoutes) //Prefix all authentication routes with /api/auth
-app.use('/api/claim', claimRoutes) //Prefix all claim routes with /api/claim
-app.use('/api/classAdviser', classAdviserRoutes) //Prefix all authentication routes with /api/classAdviser
-app.use('/api/credit', creditRoutes) //Prefix all authentication routes with /api/credit
-app.use('/api/eligibility', eligibilityRoutes) //Prefix all authentication routes with /api/eligibility
-app.use('/api/event', eventRoutes) //Prefix all event routes with /api/routes
-app.use('/api/logger', loggerRoutes) //Prefix all logger routes with /api/logger
-app.use('/api/setting', settingRoutes) //Prefix all authentication routes with /api/setting
-app.use('/api/students', studentRoutes); // Prefix all student routes with /api/students
-app.use('/api/users', userRoutes) //Prefix all user routes with /api/useres
+// ... routes remain the same ...
+app.use('/api/adminAssistant', adminAssistantRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/claim', claimRoutes);
+app.use('/api/classAdviser', classAdviserRoutes);
+app.use('/api/credit', creditRoutes);
+app.use('/api/eligibility', eligibilityRoutes);
+app.use('/api/event', eventRoutes);
+app.use('/api/logger', loggerRoutes);
+app.use('/api/setting', settingRoutes);
+app.use('/api/students', studentRoutes);
+app.use('/api/users', userRoutes);
 
 // Error Handling Middleware (must be last)
-app.use(errorHandler); // <-- This is where the middleware is applied
+app.use(errorHandler);
 
 module.exports = app;
