@@ -13,4 +13,6 @@ router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
 
 router.get('/getProgramsAndSections', fetchController.getProgramsAndSections);
 
+router.get('/getAllStudents', fetchController.getAllStudents);
+
 module.exports = router;

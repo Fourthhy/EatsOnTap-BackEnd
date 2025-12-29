@@ -197,10 +197,30 @@ const debugSectionMismatch = async (req, res, next) => {
         next(error);
     }
 }
-// Don't forget to export and add to routes temporarily!
+
+const getAllStudents = async (req, res, next) => {
+    try {
+        // 1. Use .lean() to get plain JSON objects (Faster & Editable)
+        const allStudents = await Student.find().lean();
+
+        // 2. Map through the students to add the 'isLinked' property
+        const processedStudents = allStudents.map(student => ({
+            ...student, // Keep all existing properties (name, id, etc.)
+
+            // 3. Create 'isLinked'. 
+            // The '!!' operator converts a string to true, and null/undefined/"" to false.
+            isLinked: !!student.rfidTag
+        }));
+
+        res.status(200).json(processedStudents);
+    } catch (error) {
+        next(error);
+    }
+}
 
 export {
     getAllClassAdvisers,
     getProgramsAndSections,
-    debugSectionMismatch
+    debugSectionMismatch,
+    getAllStudents
 }

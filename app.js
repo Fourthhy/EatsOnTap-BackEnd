@@ -1,3 +1,5 @@
+// use npm run dev to run the backend localhost with nodemon
+
 // app.js
 const express = require('express');
 const cors = require('cors');
