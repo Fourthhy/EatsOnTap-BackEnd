@@ -18,53 +18,97 @@ function getOrdinal(n) {
 
 const getProgramsAndSections = async (req, res, next) => {
     try {
-        // STEP 1: Aggregation - The "Student First" Approach
+        const getOrdinal = (n) => {
+            const s = ["th", "st", "nd", "rd"];
+            const v = n % 100;
+            return (s[(v - 20) % 10] || s[v] || s[0]);
+        };
+
         const rawData = await Student.aggregate([
-            // 1. Group students by 'section' to distinct them
-            //    This creates one entry per section and counts the students immediately.
+            // 1. NORMALIZE NAME (Program vs Section)
             {
-                $group: {
-                    _id: "$section", // Group by unique section name
-                    studentCount: { $sum: 1 }, // Count students in this group
-                    year: { $first: "$year" }, // Grab the year level
-                    program: { $first: "$program" } // Grab program (crucial for Higher Ed)
+                $addFields: {
+                    effectiveName: {
+                        $cond: {
+                            if: {
+                                $and: [
+                                    { $ifNull: ["$program", false] },
+                                    { $ne: ["$program", ""] }
+                                ]
+                            },
+                            then: "$program",
+                            else: "$section"
+                        }
+                    },
+                    isHigherEd: {
+                        $cond: {
+                            if: {
+                                $and: [
+                                    { $ifNull: ["$program", false] },
+                                    { $ne: ["$program", ""] }
+                                ]
+                            },
+                            then: true,
+                            else: false
+                        }
+                    }
                 }
             },
-            // 2. "Map" the Adviser to this section using $lookup
+            // 2. GROUP BY NAME & YEAR
+            {
+                $group: {
+                    _id: {
+                        name: "$effectiveName",
+                        year: "$year"
+                    },
+                    studentCount: { $sum: 1 },
+                    isHigherEd: { $first: "$isHigherEd" },
+                    program: { $first: "$program" },
+                    section: { $first: "$section" }
+                }
+            },
+            // 3. LOOKUP (JOIN) ADVISER
             {
                 $lookup: {
-                    from: "classadvisers", // ⚠️ CHECK DB: usually lowercase plural 'classadvisers'
-                    localField: "_id",     // The section name from Student
-                    foreignField: "section", // The section name in Adviser
+                    // 🟢 Mongoose converts model 'classAdviser' -> collection 'classadvisers'
+                    from: "classadvisers",
+
+                    localField: "_id.name", // The Section Name (e.g., "Faith")
+                    foreignField: "section", // The Field in ClassAdviser Schema
+
                     as: "adviserInfo"
                 }
             },
-            // 3. Format the result for our JS processing
+            // 4. FORMAT OUTPUT
             {
                 $project: {
                     _id: 0,
-                    section: "$_id",
+                    section: "$_id.name",
+                    year: "$_id.year",
                     studentCount: 1,
-                    year: 1,
                     program: 1,
-                    // Extract adviser name safely (if no adviser, return "Unassigned")
+                    isHigherEd: 1,
                     adviserName: {
-                        $let: {
-                            vars: { firstAdv: { $arrayElemAt: ["$adviserInfo", 0] } },
-                            in: {
-                                $cond: {
-                                    if: { $not: ["$$firstAdv"] },
-                                    then: "Unassigned",
-                                    else: {
-                                        $concat: [
-                                            // 1. Use $ifNull to provide a fallback if the field is missing
-                                            { $ifNull: ["$$firstAdv.honorific", ""] },
-                                            { $cond: [{ $ifNull: ["$$firstAdv.honorific", false] }, " ", ""] }, // Only add space if honorific exists
-
-                                            { $ifNull: ["$$firstAdv.first_name", ""] },
-                                            " ",
-                                            { $ifNull: ["$$firstAdv.last_name", ""] }
-                                        ]
+                        $cond: {
+                            if: { $eq: ["$isHigherEd", true] },
+                            then: null, // College = No Adviser
+                            else: {
+                                $let: {
+                                    vars: { firstAdv: { $arrayElemAt: ["$adviserInfo", 0] } },
+                                    in: {
+                                        $cond: {
+                                            if: { $not: ["$$firstAdv"] },
+                                            then: "Unassigned", // Lookup failed or no adviser found
+                                            else: {
+                                                $concat: [
+                                                    { $ifNull: ["$$firstAdv.honorific", ""] },
+                                                    " ",
+                                                    { $ifNull: ["$$firstAdv.first_name", ""] },
+                                                    " ",
+                                                    { $ifNull: ["$$firstAdv.last_name", ""] }
+                                                ]
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -74,99 +118,65 @@ const getProgramsAndSections = async (req, res, next) => {
             }
         ]);
 
-        // STEP 2: JavaScript Processing - Categorize and Sort
-        // We define buckets for each category
+        // ... (Javascript Processing Logic - Same as before) ...
+        // START COPYING HERE
         const categories = {
-            preschool: {},
-            primaryEducation: {},
-            intermediate: {},
-            juniorHighSchool: {},
-            seniorHighSchool: {},
-            higherEducation: {}
+            preschool: {}, primaryEducation: {}, intermediate: {},
+            juniorHighSchool: {}, seniorHighSchool: {}, higherEducation: {}
         };
 
-        // Helper: Logic to determine where a record belongs
         rawData.forEach(record => {
             const yearStr = String(record.year).toLowerCase();
             let catKey = null;
             let gradeLabel = null;
             let sortOrder = 99;
 
-            // --- LOGIC MAP ---
-
-            // 1. Preschool ("pre" or "0")
-            if (yearStr === "pre") {
-                catKey = "preschool"; gradeLabel = "Nursery"; sortOrder = 0;
-            } else if (yearStr === "0") {
-                catKey = "preschool"; gradeLabel = "Kindergarten"; sortOrder = 1;
-            }
-
-            // 2. Basic Ed (1-12)
-            else if (!isNaN(parseInt(yearStr)) && !record.program) {
+            if (yearStr === "pre") { catKey = "preschool"; gradeLabel = "Nursery"; sortOrder = 0; }
+            else if (yearStr === "0") { catKey = "preschool"; gradeLabel = "Kindergarten"; sortOrder = 1; }
+            else if (!record.isHigherEd && !isNaN(parseInt(yearStr))) {
                 const lvl = parseInt(yearStr);
                 if (lvl >= 1 && lvl <= 3) { catKey = "primaryEducation"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
                 else if (lvl >= 4 && lvl <= 6) { catKey = "intermediate"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
                 else if (lvl >= 7 && lvl <= 10) { catKey = "juniorHighSchool"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
                 else if (lvl >= 11 && lvl <= 12) { catKey = "seniorHighSchool"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
             }
-
-            // 3. Higher Education (If 'program' exists or year format differs)
-            // Adjust this logic if your College students store "1" in year instead of "1st Year"
-            else if (record.program || yearStr.includes("year") || yearStr.includes("nd") || yearStr.includes("rd") || yearStr.includes("th") || !isNaN(parseInt(yearStr))) {
+            else if (record.isHigherEd || !isNaN(parseInt(yearStr))) {
                 catKey = "higherEducation";
-                // If year is just "1", convert to "1st Year", otherwise keep as is
                 const num = parseInt(yearStr);
                 gradeLabel = isNaN(num) ? record.year : `${num}${getOrdinal(num)} Year`;
                 sortOrder = num || 99;
             }
 
-            // --- BUILD THE TREE ---
-            if (catKey) {
-                // If this Grade Level doesn't exist in the category yet, create it
+            if (catKey && categories[catKey]) {
                 if (!categories[catKey][gradeLabel]) {
                     categories[catKey][gradeLabel] = {
-                        gradeLevel: gradeLabel,
-                        sortKey: sortOrder,
-                        sections: []
+                        gradeLevel: gradeLabel, sortKey: sortOrder, sections: []
                     };
                 }
-
-                // Push the section details
                 categories[catKey][gradeLabel].sections.push({
-                    name: record.section,
-                    adviser: record.adviserName,
-                    studentCount: record.studentCount
+                    name: record.section, adviser: record.adviserName, studentCount: record.studentCount
                 });
             }
         });
 
-        // STEP 3: Format into the Final Array
         const finalOutput = [
-            "preschool",
-            "primaryEducation",
-            "intermediate",
-            "juniorHighSchool",
-            "seniorHighSchool",
-            "higherEducation"
+            "preschool", "primaryEducation", "intermediate",
+            "juniorHighSchool", "seniorHighSchool", "higherEducation"
         ].map(key => {
-            const levelsObj = categories[key];
-            const levelsArr = Object.values(levelsObj).sort((a, b) => a.sortKey - b.sortKey);
-
-            // Clean up the sortKey before sending
+            const levelsArr = Object.values(categories[key]).sort((a, b) => a.sortKey - b.sortKey);
             levelsArr.forEach(l => delete l.sortKey);
-
-            return {
-                category: key,
-                levels: levelsArr
-            };
+            return { category: key, levels: levelsArr };
         });
+
+        // END COPYING HERE
 
         res.status(200).json(finalOutput);
 
     } catch (error) {
+        console.error("Error in getProgramsAndSections:", error);
         next(error);
     }
-}
+};
 
 const debugSectionMismatch = async (req, res, next) => {
     try {
