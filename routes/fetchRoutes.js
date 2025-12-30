@@ -3,16 +3,8 @@ const router = express.Router();
 
 const fetchController = require('../controllers/fetchController');
 
-// === DEV FETCHERS ===
-
-router.get('/checkMismatch', fetchController.debugSectionMismatch);
-
 // === ADMIN FETCHERS === 
 
-router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
-
-router.get('/getProgramsAndSections', fetchController.getProgramsAndSections);
-
-router.get('/getAllStudents', fetchController.getAllStudents);
+router.get('/getUnifiedSchoolData', fetchController.getUnifiedSchoolData);
 
 module.exports = router;

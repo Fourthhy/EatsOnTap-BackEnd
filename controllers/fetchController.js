@@ -1,236 +1,140 @@
 import Student from "../models/student.js";
 import classAdviser from "../models/classAdviser.js";
 
-const getAllClassAdvisers = async (req, res, next) => {
-    try {
-        const allClassAdvisers = await classAdviser.find();
-        res.status(200).json(allClassAdvisers);
-    } catch (error) {
-        next(error);
-    }
-}
+const getUnifiedSchoolData = async (req, res) => {
+  try {
+    // 
 
-function getOrdinal(n) {
-    const s = ["th", "st", "nd", "rd"];
-    const v = n % 100;
-    return s[(v - 20) % 10] || s[v] || s[0];
-}
+    // 1. Fetch Students and Advisers in parallel
+    const [students, advisers] = await Promise.all([
+      Student.find({}).lean(),
+      classAdviser.find({}).lean()
+    ]);
 
-const getProgramsAndSections = async (req, res, next) => {
-    try {
-        const getOrdinal = (n) => {
-            const s = ["th", "st", "nd", "rd"];
-            const v = n % 100;
-            return (s[(v - 20) % 10] || s[v] || s[0]);
-        };
+    // 2. Create Adviser Map (O(1) Lookup)
+    const adviserMap = {};
+    advisers.forEach(adv => {
+      const fullName = `${!adv.honorific ? "" : adv.honorific} ${adv.first_name} ${adv.last_name}`.trim();
+      adviserMap[adv.section] = fullName;
+    });
 
-        const rawData = await Student.aggregate([
-            // 1. NORMALIZE NAME (Program vs Section)
-            {
-                $addFields: {
-                    effectiveName: {
-                        $cond: {
-                            if: {
-                                $and: [
-                                    { $ifNull: ["$program", false] },
-                                    { $ne: ["$program", ""] }
-                                ]
-                            },
-                            then: "$program",
-                            else: "$section"
-                        }
-                    },
-                    isHigherEd: {
-                        $cond: {
-                            if: {
-                                $and: [
-                                    { $ifNull: ["$program", false] },
-                                    { $ne: ["$program", ""] }
-                                ]
-                            },
-                            then: true,
-                            else: false
-                        }
-                    }
-                }
-            },
-            // 2. GROUP BY NAME & YEAR
-            {
-                $group: {
-                    _id: {
-                        name: "$effectiveName",
-                        year: "$year"
-                    },
-                    studentCount: { $sum: 1 },
-                    isHigherEd: { $first: "$isHigherEd" },
-                    program: { $first: "$program" },
-                    section: { $first: "$section" }
-                }
-            },
-            // 3. LOOKUP (JOIN) ADVISER
-            {
-                $lookup: {
-                    // 🟢 Mongoose converts model 'classAdviser' -> collection 'classadvisers'
-                    from: "classadvisers",
+    // 3. Initialize Buckets (Keys match Frontend IDs)
+    // 🟢 CHANGED: Keys are now camelCase to match GenericTable tabs
+    const departmentsMap = {
+      "preschool": {},
+      "primaryEducation": {},
+      "intermediate": {},
+      "juniorHighSchool": {},
+      "seniorHighSchool": {},
+      "higherEducation": {}
+    };
 
-                    localField: "_id.name", // The Section Name (e.g., "Faith")
-                    foreignField: "section", // The Field in ClassAdviser Schema
+    const parseYear = (yearStr) => parseInt(yearStr, 10);
 
-                    as: "adviserInfo"
-                }
-            },
-            // 4. FORMAT OUTPUT
-            {
-                $project: {
-                    _id: 0,
-                    section: "$_id.name",
-                    year: "$_id.year",
-                    studentCount: 1,
-                    program: 1,
-                    isHigherEd: 1,
-                    adviserName: {
-                        $cond: {
-                            if: { $eq: ["$isHigherEd", true] },
-                            then: null, // College = No Adviser
-                            else: {
-                                $let: {
-                                    vars: { firstAdv: { $arrayElemAt: ["$adviserInfo", 0] } },
-                                    in: {
-                                        $cond: {
-                                            if: { $not: ["$$firstAdv"] },
-                                            then: "Unassigned", // Lookup failed or no adviser found
-                                            else: {
-                                                $concat: [
-                                                    { $ifNull: ["$$firstAdv.honorific", ""] },
-                                                    " ",
-                                                    { $ifNull: ["$$firstAdv.first_name", ""] },
-                                                    " ",
-                                                    { $ifNull: ["$$firstAdv.last_name", ""] }
-                                                ]
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        ]);
+    // 4. Bucket Sort
+    students.forEach(student => {
+      let deptKey = "";
+      const yearVal = parseYear(student.year);
+      
+      // Determine Department ID
+      if (student.program) {
+        deptKey = "higherEducation";
+      } else if (student.section) {
+        if (isNaN(yearVal) || yearVal === 0) deptKey = "preschool";
+        else if (yearVal >= 1 && yearVal <= 3) deptKey = "primaryEducation";
+        else if (yearVal >= 4 && yearVal <= 6) deptKey = "intermediate";
+        else if (yearVal >= 7 && yearVal <= 10) deptKey = "juniorHighSchool";
+        else if (yearVal >= 11 && yearVal <= 12) deptKey = "seniorHighSchool";
+        else deptKey = "preschool"; 
+      } else {
+        return; // Skip invalid
+      }
 
-        // ... (Javascript Processing Logic - Same as before) ...
-        // START COPYING HERE
-        const categories = {
-            preschool: {}, primaryEducation: {}, intermediate: {},
-            juniorHighSchool: {}, seniorHighSchool: {}, higherEducation: {}
-        };
+      // Initialize Year
+      if (!departmentsMap[deptKey][student.year]) {
+        departmentsMap[deptKey][student.year] = {};
+      }
 
-        rawData.forEach(record => {
-            const yearStr = String(record.year).toLowerCase();
-            let catKey = null;
-            let gradeLabel = null;
-            let sortOrder = 99;
+      // Determine Group Name
+      const groupName = deptKey === "higherEducation" ? student.program : student.section;
 
-            if (yearStr === "pre") { catKey = "preschool"; gradeLabel = "Nursery"; sortOrder = 0; }
-            else if (yearStr === "0") { catKey = "preschool"; gradeLabel = "Kindergarten"; sortOrder = 1; }
-            else if (!record.isHigherEd && !isNaN(parseInt(yearStr))) {
-                const lvl = parseInt(yearStr);
-                if (lvl >= 1 && lvl <= 3) { catKey = "primaryEducation"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
-                else if (lvl >= 4 && lvl <= 6) { catKey = "intermediate"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
-                else if (lvl >= 7 && lvl <= 10) { catKey = "juniorHighSchool"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
-                else if (lvl >= 11 && lvl <= 12) { catKey = "seniorHighSchool"; gradeLabel = `Grade ${lvl}`; sortOrder = lvl; }
-            }
-            else if (record.isHigherEd || !isNaN(parseInt(yearStr))) {
-                catKey = "higherEducation";
-                const num = parseInt(yearStr);
-                gradeLabel = isNaN(num) ? record.year : `${num}${getOrdinal(num)} Year`;
-                sortOrder = num || 99;
-            }
+      // Initialize Group
+      if (!departmentsMap[deptKey][student.year][groupName]) {
+        departmentsMap[deptKey][student.year][groupName] = [];
+      }
 
-            if (catKey && categories[catKey]) {
-                if (!categories[catKey][gradeLabel]) {
-                    categories[catKey][gradeLabel] = {
-                        gradeLevel: gradeLabel, sortKey: sortOrder, sections: []
-                    };
-                }
-                categories[catKey][gradeLabel].sections.push({
-                    name: record.section, adviser: record.adviserName, studentCount: record.studentCount
-                });
-            }
+      // Push Student
+      departmentsMap[deptKey][student.year][groupName].push(student);
+    });
+
+    // 5. Transform to Array
+    const responseData = Object.keys(departmentsMap).map(deptKey => {
+      const yearsObj = departmentsMap[deptKey];
+      
+      const levels = Object.keys(yearsObj).map(yearKey => {
+        const groupsObj = yearsObj[yearKey];
+        
+        const groups = Object.keys(groupsObj).map(groupKey => {
+          const rawStudentList = groupsObj[groupKey];
+          
+          // 🟢 ADDED: Transform Student Data (isLinked logic)
+          const processedStudents = rawStudentList.map(s => ({
+              id: s._id,
+              name: `${s.first_name} ${s.middle_name || ''} ${s.last_name}`.replace(/\s+/g, ' ').trim(),
+              studentId: s.studentID,
+              type: "Regular", // Default
+              
+              // 🟢 THE LOGIC YOU REQUESTED
+              isLinked: (s.rfidTag && s.rfidTag.length > 0) ? true : false,
+              
+              // Keep raw data just in case
+              gradeLevel: s.year,
+              program: deptKey === "higherEducation" ? groupKey : null,
+              section: deptKey !== "higherEducation" ? groupKey : null
+          }));
+
+          const groupObject = {
+            section: groupKey, // Standardized key for UI
+            studentCount: processedStudents.length,
+            students: processedStudents
+          };
+
+          if (deptKey === "higherEducation") {
+            groupObject.adviser = "N/A";
+          } else {
+            groupObject.adviser = adviserMap[groupKey] || "Unassigned"; 
+          }
+
+          return groupObject;
         });
 
-        const finalOutput = [
-            "preschool", "primaryEducation", "intermediate",
-            "juniorHighSchool", "seniorHighSchool", "higherEducation"
-        ].map(key => {
-            const levelsArr = Object.values(categories[key]).sort((a, b) => a.sortKey - b.sortKey);
-            levelsArr.forEach(l => delete l.sortKey);
-            return { category: key, levels: levelsArr };
-        });
+        return {
+          levelName: yearKey, // 🟢 MATCH FRONTEND: 'levelName' vs 'year'
+          sections: groups
+        };
+      });
 
-        // END COPYING HERE
+      // Sort Levels
+      levels.sort((a, b) => {
+        const valA = parseYear(a.levelName) || -1;
+        const valB = parseYear(b.levelName) || -1;
+        return valA - valB;
+      });
 
-        res.status(200).json(finalOutput);
+      return {
+        category: deptKey, // 🟢 MATCH FRONTEND: 'category' vs 'department'
+        levels: levels
+      };
+    });
 
-    } catch (error) {
-        console.error("Error in getProgramsAndSections:", error);
-        next(error);
-    }
+    return res.status(200).json(responseData);
+
+  } catch (error) {
+    console.error("Aggregation Error:", error);
+    return res.status(500).json({ error: "Failed to aggregate student list" });
+  }
 };
 
-const debugSectionMismatch = async (req, res, next) => {
-    try {
-        // 1. Get all distinct sections from Students
-        const studentSections = await Student.distinct("section");
-
-        // 2. Get all distinct sections from Advisers
-        const adviserSections = await classAdviser.distinct("section");
-
-        // 3. Find missing ones
-        const sectionsWithNoAdviser = studentSections.filter(
-            sSection => !adviserSections.includes(sSection)
-        );
-
-        res.json({
-            status: "DEBUG_REPORT",
-            totalStudentSections: studentSections.length,
-            totalAdviserSections: adviserSections.length,
-
-            // This list shows sections that exist in Students but failed to match an Adviser
-            mismatchedSections: sectionsWithNoAdviser,
-
-            // Raw lists to visually compare (look for casing or spaces)
-            studentSectionsList: studentSections.sort(),
-            adviserSectionsList: adviserSections.sort()
-        });
-    } catch (error) {
-        next(error);
-    }
-}
-
-const getAllStudents = async (req, res, next) => {
-    try {
-        // 1. Use .lean() to get plain JSON objects (Faster & Editable)
-        const allStudents = await Student.find().lean();
-
-        // 2. Map through the students to add the 'isLinked' property
-        const processedStudents = allStudents.map(student => ({
-            ...student, // Keep all existing properties (name, id, etc.)
-
-            // 3. Create 'isLinked'. 
-            // The '!!' operator converts a string to true, and null/undefined/"" to false.
-            isLinked: !!student.rfidTag
-        }));
-
-        res.status(200).json(processedStudents);
-    } catch (error) {
-        next(error);
-    }
-}
-
 export {
-    getAllClassAdvisers,
-    getProgramsAndSections,
-    debugSectionMismatch,
-    getAllStudents
+    getUnifiedSchoolData,
 }
