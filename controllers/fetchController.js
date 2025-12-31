@@ -135,6 +135,21 @@ const getUnifiedSchoolData = async (req, res) => {
   }
 };
 
+const getAllClassAdvisers = async (req, res, next) => {
+
+
+  try {
+    const allClassAdvisers = await classAdviser.find();
+    res.status(200).json(allClassAdvisers)
+    if (!allClassAdvisers) {
+      res.status(404).json({ message: "There are no Class Advisers!" });
+    }
+  } catch (error) {
+    next(error)
+  }
+}
+
 export {
     getUnifiedSchoolData,
+    getAllClassAdvisers
 }

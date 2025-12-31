@@ -7,7 +7,7 @@ const classAdviserSchema = new mongoose.Schema({
     middle_name: { type: String },
     last_name: { type: String },
     role: { type: String, default: 'CLASS-ADVISER'},
-    section : { type: String, required: true },
+    section : { type: String },
     email: { type: String, required: true, unique: true, match: [/^[\w-\.]+@laverdad\.edu\.ph$/, 'Email must be a valid @laverdad.edu.ph address']},
     password: { type: String, required: true }
 })

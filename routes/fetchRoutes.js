@@ -7,4 +7,6 @@ const fetchController = require('../controllers/fetchController');
 
 router.get('/getUnifiedSchoolData', fetchController.getUnifiedSchoolData);
 
+router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
+
 module.exports = router;
