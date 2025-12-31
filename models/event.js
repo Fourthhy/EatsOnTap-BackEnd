@@ -3,15 +3,15 @@ const mongoose = require('mongoose');
 const eventSchema = new mongoose.Schema({
     eventID: { type: String, required: true },
     eventName: { type: String, required: true },
-    startDay: { type: String, required: true },
-    endDay: { type: String, required: true },
+    eventSpan: { type: [String], required: true},
     status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
-    forEligibleSection: [String],
+    forEligibleSection: { type: [String], default: [] },
     forEligibleProgramsAndYear: [{
-        program: { type: String, required: true },
-        year: { type: String, required: true }
+        program: { type: String },
+        year: { type: String }
     }],
-    forTemporarilyWaived: { type: [String], required: true },
+    forTemporarilyWaived: { type: [String] },
+    absentStudents: { type: [String], default: [] }
 });
 
 module.exports = mongoose.model('Event', eventSchema);
