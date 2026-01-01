@@ -1,6 +1,10 @@
 import Student from "../models/student.js";
 import classAdviser from "../models/classAdviser.js";
 
+import eligibilityBasicEd from "../models/eligibilityBasicEd.js"
+import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
+import Event from "../models/event.js"
+
 const getUnifiedSchoolData = async (req, res) => {
   try {
     // 
@@ -35,7 +39,7 @@ const getUnifiedSchoolData = async (req, res) => {
     students.forEach(student => {
       let deptKey = "";
       const yearVal = parseYear(student.year);
-      
+
       // Determine Department ID
       if (student.program) {
         deptKey = "higherEducation";
@@ -45,7 +49,7 @@ const getUnifiedSchoolData = async (req, res) => {
         else if (yearVal >= 4 && yearVal <= 6) deptKey = "intermediate";
         else if (yearVal >= 7 && yearVal <= 10) deptKey = "juniorHighSchool";
         else if (yearVal >= 11 && yearVal <= 12) deptKey = "seniorHighSchool";
-        else deptKey = "preschool"; 
+        else deptKey = "preschool";
       } else {
         return; // Skip invalid
       }
@@ -70,27 +74,27 @@ const getUnifiedSchoolData = async (req, res) => {
     // 5. Transform to Array
     const responseData = Object.keys(departmentsMap).map(deptKey => {
       const yearsObj = departmentsMap[deptKey];
-      
+
       const levels = Object.keys(yearsObj).map(yearKey => {
         const groupsObj = yearsObj[yearKey];
-        
+
         const groups = Object.keys(groupsObj).map(groupKey => {
           const rawStudentList = groupsObj[groupKey];
-          
+
           // 🟢 ADDED: Transform Student Data (isLinked logic)
           const processedStudents = rawStudentList.map(s => ({
-              id: s._id,
-              name: `${s.first_name} ${s.middle_name || ''} ${s.last_name}`.replace(/\s+/g, ' ').trim(),
-              studentId: s.studentID,
-              type: "Regular", // Default
-              
-              // 🟢 THE LOGIC YOU REQUESTED
-              isLinked: (s.rfidTag && s.rfidTag.length > 0) ? true : false,
-              
-              // Keep raw data just in case
-              gradeLevel: s.year,
-              program: deptKey === "higherEducation" ? groupKey : null,
-              section: deptKey !== "higherEducation" ? groupKey : null
+            id: s._id,
+            name: `${s.first_name} ${s.middle_name || ''} ${s.last_name}`.replace(/\s+/g, ' ').trim(),
+            studentId: s.studentID,
+            type: "Regular", // Default
+
+            // 🟢 THE LOGIC YOU REQUESTED
+            isLinked: (s.rfidTag && s.rfidTag.length > 0) ? true : false,
+
+            // Keep raw data just in case
+            gradeLevel: s.year,
+            program: deptKey === "higherEducation" ? groupKey : null,
+            section: deptKey !== "higherEducation" ? groupKey : null
           }));
 
           const groupObject = {
@@ -102,7 +106,7 @@ const getUnifiedSchoolData = async (req, res) => {
           if (deptKey === "higherEducation") {
             groupObject.adviser = "N/A";
           } else {
-            groupObject.adviser = adviserMap[groupKey] || "Unassigned"; 
+            groupObject.adviser = adviserMap[groupKey] || "Unassigned";
           }
 
           return groupObject;
@@ -140,16 +144,82 @@ const getAllClassAdvisers = async (req, res, next) => {
 
   try {
     const allClassAdvisers = await classAdviser.find();
-    res.status(200).json(allClassAdvisers)
     if (!allClassAdvisers) {
       res.status(404).json({ message: "There are no Class Advisers!" });
     }
+    res.status(200).json(allClassAdvisers)
+  } catch (error) {
+    next(error)
+  }
+}
+
+const getAllBasicEducationMealRequest = async (req, res, next) => {
+  try {
+    // 0. Define timezone
+    const now = new Date();
+    const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+    // 1. Create Start of Day (00:00:00)
+    const startOfDay = new Date(phTime);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // 2. Create End of Day (23:59:59)
+    const endOfDay = new Date(phTime);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 3. Find documents where timeStamp is between start and end
+    const allBasicEducationMealRequest = await eligibilityBasicEd.find({
+      timeStamp: {
+        $gte: startOfDay, // Greater than or equal to start
+        $lte: endOfDay    // Less than or equal to end
+      }
+    });
+
+    res.status(200).json(allBasicEducationMealRequest);
+  } catch (error) {
+    next(error);
+  }
+}
+
+const getAllHigherEducationMealRequest = async (req, res, next) => {
+  try {
+    // 0. Define timezone
+    const now = new Date();
+    const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+    // 1. Create Start of Day (00:00:00)
+    const startOfDay = new Date(phTime);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // 2. Create End of Day (23:59:59)
+    const endOfDay = new Date(phTime);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 3. Find documents submitted today
+    const allHigherEducationMealRequest = await eligibilityHigherEd.find({
+      timeStamp: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    res.status(200).json(allHigherEducationMealRequest);
+  } catch (error) {
+    next(error);
+  }
+}
+
+const getAllEvents = async (req, res, next) => {
+  try {
+    const allEvents = await Event.find();
+    res.status(200).json(allEvents);
   } catch (error) {
     next(error)
   }
 }
 
 export {
-    getUnifiedSchoolData,
-    getAllClassAdvisers
+  getUnifiedSchoolData,
+  getAllClassAdvisers,
+  getAllBasicEducationMealRequest,
+  getAllHigherEducationMealRequest,
+  getAllEvents
 }

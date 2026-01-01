@@ -9,4 +9,10 @@ router.get('/getUnifiedSchoolData', fetchController.getUnifiedSchoolData);
 
 router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
 
+router.get('/getAllBasicEducationMealRequest', fetchController.getAllBasicEducationMealRequest);
+
+router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEducationMealRequest);
+
+router.get('/getAllEvents', fetchController.getAllEvents);
+
 module.exports = router;

@@ -205,14 +205,24 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
     try {
         const { section } = req.params;
 
-        // 1. Get the time range for "Today"
-        const startOfDay = new Date();
+        // 1. Get Current Time in Philippines (or your local) Timezone
+        const now = new Date();
+
+        // Convert to PH time string to get accurate Year-Month-Day
+        // This handles the +8 offset automatically
+        const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+
+        // 2. Create Start of Day based on PH Time
+        const startOfDay = new Date(phTime);
         startOfDay.setHours(0, 0, 0, 0);
 
-        const endOfDay = new Date();
+        // 3. Create End of Day based on PH Time
+        const endOfDay = new Date(phTime);
         endOfDay.setHours(23, 59, 59, 999);
 
-        // 2. Check existence using 'timeStamp' (MATCHING YOUR SCHEMA)
+        // Debug: Log to see what the server actually sees
+        // console.log("Checking Range:", startOfDay, "to", endOfDay);
+
         const existingRecord = await eligibilityBasicEd.findOne({
             section: section,
             timeStamp: {
@@ -221,7 +231,6 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
             }
         });
 
-        // 3. Return true/false
         res.status(200).json(!!existingRecord);
 
     } catch (error) {
