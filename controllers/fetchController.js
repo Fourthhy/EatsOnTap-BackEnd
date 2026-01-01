@@ -155,22 +155,47 @@ const getAllClassAdvisers = async (req, res, next) => {
 
 const getAllBasicEducationMealRequest = async (req, res, next) => {
   try {
-    // 0. Define timezone
     const now = new Date();
-    const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
-    // 1. Create Start of Day (00:00:00)
-    const startOfDay = new Date(phTime);
+    
+    // 1. Get the "Calendar Date" string specifically for Philippines
+    // This tells us "It is Jan 2nd in Manila", regardless of what the server thinks
+    const phDateString = now.toLocaleDateString("en-US", { timeZone: "Asia/Manila" });
+
+    // 2. Create Start of Day
+    // We append the time explicitly to force the correct window
+    const startOfDay = new Date(new Date(phDateString).toLocaleString("en-US", { timeZone: "Asia/Manila" }));
     startOfDay.setHours(0, 0, 0, 0);
+    
+    // FIX: The object above is in Server Time. We need to shift it if the Server is UTC.
+    // Actually, an easier way is to define the UTC window manually:
+    
+    // --- 🟢 ROBUST OFFSET METHOD ---
+    
+    // 1. Get current time
+    const current = new Date();
+    
+    // 2. Shift 'current' to PH time (UTC + 8 hours)
+    // We add 8 hours (in ms) to the UTC time
+    const phOffset = 8 * 60 * 60 * 1000; 
+    const phTimeValue = new Date(current.getTime() + phOffset);
 
-    // 2. Create End of Day (23:59:59)
-    const endOfDay = new Date(phTime);
-    endOfDay.setHours(23, 59, 59, 999);
+    // 3. Zero out the hours/minutes/seconds to get "Start of PH Day"
+    phTimeValue.setUTCHours(0, 0, 0, 0);
 
-    // 3. Find documents where timeStamp is between start and end
+    // 4. Shift BACK to UTC to get the database query timestamp
+    const queryStart = new Date(phTimeValue.getTime() - phOffset);
+    
+    // 5. Create End of Day (Start + 24 hours - 1ms)
+    const queryEnd = new Date(queryStart.getTime() + (24 * 60 * 60 * 1000) - 1);
+
+    // Debugging Logs (Remove in production)
+    // console.log("Server Time:", current.toISOString());
+    // console.log("Query Range (UTC):", queryStart.toISOString(), "to", queryEnd.toISOString());
+
     const allBasicEducationMealRequest = await eligibilityBasicEd.find({
       timeStamp: {
-        $gte: startOfDay, // Greater than or equal to start
-        $lte: endOfDay    // Less than or equal to end
+        $gte: queryStart,
+        $lte: queryEnd
       }
     });
 
@@ -182,22 +207,29 @@ const getAllBasicEducationMealRequest = async (req, res, next) => {
 
 const getAllHigherEducationMealRequest = async (req, res, next) => {
   try {
-    // 0. Define timezone
-    const now = new Date();
-    const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
-    // 1. Create Start of Day (00:00:00)
-    const startOfDay = new Date(phTime);
-    startOfDay.setHours(0, 0, 0, 0);
+    // 1. Get current time (Server Time)
+    const current = new Date();
+    
+    // 2. Shift 'current' to PH time (UTC + 8 hours)
+    // We add 8 hours (in ms) to the UTC time
+    const phOffset = 8 * 60 * 60 * 1000; 
+    const phTimeValue = new Date(current.getTime() + phOffset);
 
-    // 2. Create End of Day (23:59:59)
-    const endOfDay = new Date(phTime);
-    endOfDay.setHours(23, 59, 59, 999);
+    // 3. Zero out the hours/minutes/seconds to get "Start of PH Day"
+    phTimeValue.setUTCHours(0, 0, 0, 0);
 
-    // 3. Find documents submitted today
+    // 4. Shift BACK to UTC to get the database query timestamp
+    // This gives us the exact UTC moment that "PH Midnight" started
+    const queryStart = new Date(phTimeValue.getTime() - phOffset);
+    
+    // 5. Create End of Day (Start + 24 hours - 1ms)
+    const queryEnd = new Date(queryStart.getTime() + (24 * 60 * 60 * 1000) - 1);
+
+    // 6. Find documents submitted today
     const allHigherEducationMealRequest = await eligibilityHigherEd.find({
       timeStamp: {
-        $gte: startOfDay,
-        $lte: endOfDay
+        $gte: queryStart,
+        $lte: queryEnd
       }
     });
 
