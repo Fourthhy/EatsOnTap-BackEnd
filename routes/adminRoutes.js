@@ -15,4 +15,7 @@ router.put('/approveEvent/:eventID', adminController.approveEvents);
 
 router.get('/fetchClaimPerMealCount', adminController.fetchClaimPerMealCount);
 
+//router for admin submit of eligiblity list
+router.post('/generateEligibilityList', adminController.generateEligibilityList);
+
 module.exports = router;

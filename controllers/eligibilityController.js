@@ -263,5 +263,6 @@ that will server as the eligibility ID of the list they submitted.
 export {
     submitDailyMealRequestList,
     submitScheduledMealRequestList,
-    fetchDailyRequestsBySection
+    fetchDailyRequestsBySection,
+    getStudentIDsBySection
 }
