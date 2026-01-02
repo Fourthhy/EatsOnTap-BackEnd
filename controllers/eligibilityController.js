@@ -104,6 +104,13 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         await newEligibilityListing.save()
 
+        //import socket functions
+        const io = req.app.get('socketio');
+        if (io) {
+            io.emit('meal-request-submit', { type: 'Basic Education' });
+            console.log('Socket Emitted: meal-request-submit: Basic Education');
+        }
+
         //success response
         res.status(201).json({
             message: `Meal Recepient list submitted for ${section} section`,
