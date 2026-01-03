@@ -5,6 +5,8 @@ import eligibilityBasicEd from "../models/eligibilityBasicEd.js"
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 import Event from "../models/event.js"
 
+import claimRecord from "../models/claimRecord.js"
+
 const getUnifiedSchoolData = async (req, res) => {
   try {
     // 
@@ -248,10 +250,42 @@ const getAllEvents = async (req, res, next) => {
   }
 }
 
+
+
+const getTodayClaimRecord = async (req, res, next) => {
+    try {
+        // 1. Calculate "Start" and "End" of the current server day
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 2. Find the single document that matches this time window
+        const todayRecord = await claimRecord.findOne({
+            claimDate: { 
+                $gte: startOfDay, 
+                $lte: endOfDay 
+            }
+        });
+
+        if (!todayRecord) {
+            return res.status(404).json({ message: "No claim records found for today." });
+        }
+
+        // 3. Return the record
+        res.status(200).json(todayRecord);
+
+    } catch (error) {
+        next(error);
+    }
+}
+
 export {
   getUnifiedSchoolData,
   getAllClassAdvisers,
   getAllBasicEducationMealRequest,
   getAllHigherEducationMealRequest,
-  getAllEvents
+  getAllEvents,
+  getTodayClaimRecord
 }

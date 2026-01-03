@@ -11,6 +11,10 @@ import claimTrends from '../models/admin/claimTrends.js';
 import eligibilityCount from '../models/admin/eligibilityCount.js';
 import programStatusCount from '../models/admin/programStatusCount.js';
 
+import mealValue from "../models/mealValue.js";
+
+import claimRecord from "../models/claimRecord.js";
+
 //Approving Meal Eligibility Request and Scheduled Meal Eligibiltiy Request
 
 //Transforming Status from "PENDING" to "APPROVED"
@@ -30,17 +34,88 @@ const getStudentIDsBySection = async (section) => {
     return allStudentIDs;
 }
 
-const approveMealEligibilityRequest = async (req, res) => {
+const approveMealEligibilityRequest = async (req, res, next) => {
     try {
-        const eligibilityRequestList = await eligibilityBasicEd.findOne({ eligibilityID: req.params.eligibilityID });
-        if (!eligibilityRequestList) {
-            return res.status(404).json({ message: "meal eligibility list does not exist" });
+        const { eligibilityID } = req.params;
+
+        // 1. Fetch and Validate the Eligibility Request
+        const eligibilityRequest = await eligibilityBasicEd.findOne({ eligibilityID });
+
+        if (!eligibilityRequest) {
+            return res.status(404).json({ message: "Meal eligibility list does not exist" });
         }
-        eligibilityRequestList.status = 'APPROVED';
-        await eligibilityRequestList.save()
-        res.status(200).json({ message: `meal eligibility list ${eligibilityRequestList.eligibilityID} is now APPROVED` })
+
+        if (eligibilityRequest.status === 'APPROVED') {
+            return res.status(400).json({ message: "This list is already approved" });
+        }
+
+        // 2. Fetch Student Details for the "Eligible" list
+        // We need this to get their current creditValue for the record
+        const eligibleStudentsData = await Student.find({
+            studentID: { $in: eligibilityRequest.forEligible }
+        });
+
+        // 3. Prepare the Data Structure for ClaimRecord
+        const newSectionRecord = {
+            section: eligibilityRequest.section,
+
+            // Map the eligible students to the required schema structure
+            eligibleStudents: eligibleStudentsData.map(student => ({
+                studentID: student.studentID,
+                claimType: 'ELIGIBLE', // Default type
+                creditBalance: student.creditValue || 0, // Copy current value from Student model
+                onHandCash: 0 // Default start value
+            })),
+
+            // Map the waived students (Assuming just IDs for now)
+            waivedStudents: eligibilityRequest.forTemporarilyWaived.map(id => ({
+                studentID: id
+            }))
+        };
+
+        // 4. Determine Date Range for "Today"
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 5. Find if a ClaimRecord already exists for today
+        let dailyRecord = await claimRecord.findOne({
+            claimDate: { $gte: startOfDay, $lte: endOfDay }
+        });
+
+        if (dailyRecord) {
+            // SCENARIO A: Record exists, append the new section
+            // Check if section already exists to prevent duplicates (Optional but safe)
+            const sectionExists = dailyRecord.claimRecords.some(r => r.section === eligibilityRequest.section);
+
+            if (sectionExists) {
+                return res.status(400).json({ message: "This section has already been approved for today." });
+            }
+
+            dailyRecord.claimRecords.push(newSectionRecord);
+            await dailyRecord.save();
+
+        } else {
+            // SCENARIO B: No record for today, create a new one
+            dailyRecord = new claimRecord({
+                claimDate: new Date(), // Set explicit now
+                claimRecords: [newSectionRecord]
+            });
+            await dailyRecord.save();
+        }
+
+        // 6. Finalize: Update the status of the request to APPROVED
+        eligibilityRequest.status = 'APPROVED';
+        await eligibilityRequest.save();
+
+        res.status(200).json({
+            message: `Meal eligibility list ${eligibilityID} APPROVED and synced to Daily Records.`
+        });
+
     } catch (error) {
-        throw new Error(error.message);
+        next(error);
     }
 }
 
@@ -172,11 +247,70 @@ const generateEligibilityList = async (req, res, next) => {
     }
 };
 
+const addMealValue = async (req, res, next) => {
+    try {
+        const { desiredMealValue } = req.body;
+
+        // 1. Try to find the existing setting
+        let creditValue = await mealValue.findOne();
+
+        // 2. If it doesn't exist yet, create a NEW one
+        if (!creditValue) {
+            creditValue = new mealValue({ mealValue: desiredMealValue });
+        } else {
+            // 3. If it exists, update it
+            creditValue.mealValue = desiredMealValue;
+        }
+
+        // 4. Save the single document
+        await creditValue.save();
+
+        res.status(200).json({ message: `Meal value set to ${desiredMealValue} successfully` });
+    } catch (error) {
+        next(error);
+    }
+}
+
+const editMealValue = async (req, res, next) => {
+    try {
+        const { desiredMealValue } = req.body;
+
+        // Use findOne() to get the actual object, not an array
+        const creditValue = await mealValue.findOne();
+
+        if (!creditValue) {
+            return res.status(404).json({ message: "No meal value set yet. Please add one first." });
+        }
+
+        creditValue.mealValue = desiredMealValue;
+        await creditValue.save();
+
+        res.status(200).json({ message: `Updated to ${desiredMealValue} successfully` });
+    } catch (error) {
+        next(error);
+    }
+}
+
+const checkMealCreditValue = async (req, res, next) => {
+    try {
+        const creditValue = await mealValue.find();
+        if (!creditValue) {
+            res.status(404).json({ message: "No credit value found" })
+        }
+        res.status(200).json(creditValue);
+    } catch (error) {
+        next(error)
+    }
+}
+
 
 export {
     approveMealEligibilityRequest,
     approveScheduleMealEligibilityRequest,
     approveEvents,
     fetchClaimPerMealCount,
-    generateEligibilityList
+    generateEligibilityList,
+    addMealValue,
+    editMealValue,
+    checkMealCreditValue
 }

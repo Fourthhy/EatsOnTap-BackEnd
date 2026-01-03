@@ -15,4 +15,6 @@ router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEduc
 
 router.get('/getAllEvents', fetchController.getAllEvents);
 
+router.get('/getTodayClaimRecord', fetchController.getTodayClaimRecord);
+
 module.exports = router;

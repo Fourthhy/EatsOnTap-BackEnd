@@ -18,4 +18,13 @@ router.get('/fetchClaimPerMealCount', adminController.fetchClaimPerMealCount);
 //router for admin submit of eligiblity list
 router.post('/generateEligibilityList', adminController.generateEligibilityList);
 
+//router for addming meal value
+router.post('/addMealValue', adminController.addMealValue);
+
+//router for editing meal value
+router.put('/editMealValue', adminController.editMealValue);
+
+//router for chceking meal value
+router.get('/checkMealCreditValue', adminController.checkMealCreditValue);
+
 module.exports = router;
