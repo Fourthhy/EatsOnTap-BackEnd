@@ -142,7 +142,7 @@ const generateEligibilityList = async (req, res, next) => {
 
         // 5. Create Record
         const newEligibilityListing = new eligibilityBasicEd({
-            eligibilityID: `ADMIN-GENERATED-${section}-${Date.now()}`, // Added timestamp to ensure uniqueness
+            eligibilityID: `${section}-ADMIN-GENERATED`,
             requester: "ADMIN",
             section: section,
             forEligible: forEligible,
