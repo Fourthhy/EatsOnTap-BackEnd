@@ -250,8 +250,6 @@ const getAllEvents = async (req, res, next) => {
   }
 }
 
-
-
 const getTodayClaimRecord = async (req, res, next) => {
     try {
         // 1. Calculate "Start" and "End" of the current server day
@@ -270,7 +268,7 @@ const getTodayClaimRecord = async (req, res, next) => {
         });
 
         if (!todayRecord) {
-            return res.status(404).json({ message: "No claim records found for today." });
+            console.warn("There are no records!");
         }
 
         // 3. Return the record

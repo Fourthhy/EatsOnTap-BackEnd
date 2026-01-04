@@ -50,7 +50,6 @@ const approveMealEligibilityRequest = async (req, res, next) => {
         }
 
         // 2. Fetch Student Details for the "Eligible" list
-        // We need this to get their current creditValue for the record
         const eligibleStudentsData = await Student.find({
             studentID: { $in: eligibilityRequest.forEligible }
         });
@@ -59,15 +58,15 @@ const approveMealEligibilityRequest = async (req, res, next) => {
         const newSectionRecord = {
             section: eligibilityRequest.section,
 
-            // Map the eligible students to the required schema structure
+            // Map the eligible students
             eligibleStudents: eligibleStudentsData.map(student => ({
                 studentID: student.studentID,
-                claimType: 'ELIGIBLE', // Default type
-                creditBalance: student.creditValue || 0, // Copy current value from Student model
-                onHandCash: 0 // Default start value
+                claimType: 'ELIGIBLE',
+                creditBalance: student.creditValue || 0,
+                onHandCash: 0
             })),
 
-            // Map the waived students (Assuming just IDs for now)
+            // Map the waived students
             waivedStudents: eligibilityRequest.forTemporarilyWaived.map(id => ({
                 studentID: id
             }))
@@ -86,24 +85,31 @@ const approveMealEligibilityRequest = async (req, res, next) => {
         });
 
         if (dailyRecord) {
-            // SCENARIO A: Record exists, append the new section
-            // Check if section already exists to prevent duplicates (Optional but safe)
+            // SCENARIO A: Append to existing
             const sectionExists = dailyRecord.claimRecords.some(r => r.section === eligibilityRequest.section);
-
             if (sectionExists) {
                 return res.status(400).json({ message: "This section has already been approved for today." });
             }
-
             dailyRecord.claimRecords.push(newSectionRecord);
             await dailyRecord.save();
-
         } else {
-            // SCENARIO B: No record for today, create a new one
+            // SCENARIO B: Create new
+            // FIX: Use 'startOfDay' instead of 'new Date()' to normalize the time to 00:00:00
             dailyRecord = new claimRecord({
-                claimDate: new Date(), // Set explicit now
+                claimDate: startOfDay, // <--- CHANGED THIS
                 claimRecords: [newSectionRecord]
             });
             await dailyRecord.save();
+        }
+
+        // FIX: Ensure Socket Emit is OUTSIDE the if/else blocks
+        const io = req.app.get('socketio');
+        if (io) {
+            // Send the data explicitly so frontend can debug
+            io.emit('meal-request-submit', { type: 'Basic Education', message: 'Update Triggered' });
+            console.log('🔔 Socket Emitted to all clients');
+        } else {
+            console.error('❌ Socket.io not found');
         }
 
         // 6. Finalize: Update the status of the request to APPROVED
@@ -117,7 +123,7 @@ const approveMealEligibilityRequest = async (req, res, next) => {
     } catch (error) {
         next(error);
     }
-}
+};
 
 const approveScheduleMealEligibilityRequest = async (req, res) => {
     try {
