@@ -4,7 +4,7 @@ import Student from "../models/student.js";
 
 const removeClaimDetails = async (req, res, next) => {
     try {
-        await Student.updateMany({}, { $unset: { mealEligibilityStatus: "" } });
+        await Student.updateMany({}, { $unset: { creditValue: "" } });
         console.log("Successfully removed 'yearServed' from all users.")
     } catch (error) {
         next(error)

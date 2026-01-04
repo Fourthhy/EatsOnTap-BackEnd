@@ -241,7 +241,12 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
             }
         });
 
-        res.status(200).json(!!existingRecord);
+        const jsonResponse = {
+            isSubmitted: existingRecord ? true : false,
+            existingRecord
+        }
+
+        res.status(200).json(jsonResponse);
 
     } catch (error) {
         next(error);
