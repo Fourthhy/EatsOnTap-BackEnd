@@ -215,24 +215,34 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
     try {
         const { section } = req.params;
 
-        // 1. Get Current Time in Philippines (or your local) Timezone
+        // 1. Get Current "Wall Clock" Date Components in Manila
+        // We extract the specific Day, Month, and Year in the Philippines right now.
         const now = new Date();
+        const options = { timeZone: "Asia/Manila", year: 'numeric', month: 'numeric', day: 'numeric' };
 
-        // Convert to PH time string to get accurate Year-Month-Day
-        // This handles the +8 offset automatically
-        const phTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+        // This gives us a string like "1/5/2026" regardless of where the server is
+        const phDateString = now.toLocaleDateString("en-US", options);
 
-        // 2. Create Start of Day based on PH Time
-        const startOfDay = new Date(phTime);
-        startOfDay.setHours(0, 0, 0, 0);
+        // Parse the components
+        const [month, day, year] = phDateString.split('/').map(num => parseInt(num));
 
-        // 3. Create End of Day based on PH Time
-        const endOfDay = new Date(phTime);
-        endOfDay.setHours(23, 59, 59, 999);
+        // 2. Construct the Query Range in UTC
+        // A. Start with 00:00 UTC on that specific date
+        // B. Subtract 8 hours (28800000ms) to align with Philippines Midnight (GMT+8)
+        // Note: Month is 0-indexed in Javascript Date (0 = Jan, 11 = Dec)
+        const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
 
-        // Debug: Log to see what the server actually sees
-        // console.log("Checking Range:", startOfDay, "to", endOfDay);
+        const startOfDayVal = Date.UTC(year, month - 1, day) - PH_OFFSET_MS;
+        const endOfDayVal = startOfDayVal + (24 * 60 * 60 * 1000) - 1;
 
+        const startOfDay = new Date(startOfDayVal);
+        const endOfDay = new Date(endOfDayVal);
+
+        // Debug: This should now show the correct UTC equivalents (e.g., 16:00 prev day)
+        // console.log(`Searching for PH Date: ${phDateString}`);
+        // console.log(`Query Range (UTC): ${startOfDay.toISOString()} - ${endOfDay.toISOString()}`);
+
+        // 3. Run the Query
         const existingRecord = await eligibilityBasicEd.findOne({
             section: section,
             timeStamp: {
@@ -242,9 +252,9 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
         });
 
         const jsonResponse = {
-            isSubmitted: existingRecord ? true : false,
+            isSubmitted: !!existingRecord, // shorthand for existingRecord ? true : false
             existingRecord
-        }
+        };
 
         res.status(200).json(jsonResponse);
 
