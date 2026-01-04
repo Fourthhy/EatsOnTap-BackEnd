@@ -10,8 +10,6 @@ const studentSchema = new mongoose.Schema({
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
   year: { type: String, required: true },
-  mealEligibilityStatus: { type: String, enum: ['ELIGIBLE', 'INELIGIBLE', 'CLAIMED', 'WAIVED'], default: 'INELIGIBLE' }, //will be removed
-  creditValue: { type: Number, default: 0 }, //will be removed
   rfidTag: { type: String, default: null },
 });
 
