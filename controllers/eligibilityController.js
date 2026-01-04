@@ -94,13 +94,16 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         const forEligible = forEligibleStudentIDs.filter(studentID => !waivedByDefault.has(studentID));
 
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
         const newEligibilityListing = new eligibilityBasicEd({
-            eligibilityID: `${requesterID}-${section}`,
+            // 🟢 UPDATED: Now includes the date string
+            eligibilityID: `${requesterID}-${section}-${dateStr}`,
             requester: requesterID,
             section: section,
             forEligible: forEligible,
             forTemporarilyWaived: forTemporarilyWaived
-        })
+        });
 
         await newEligibilityListing.save()
 

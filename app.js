@@ -19,7 +19,12 @@ const settingRoutes = require('./routes/settingRoutes');
 const creditRoutes = require('./routes/creditRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const fetchRoutes = require('./routes/fetchRoutes');
+
+//for development purposes
+const developerRoutes = require('./routes/developerRouter');
+
 const errorHandler = require('./middlewares/eventHandler');
+
 
 const app = express();
 
@@ -71,6 +76,8 @@ app.use('/api/setting', settingRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/users', userRoutes);
 
+//for development purposes
+app.use('/api/dev', developerRoutes);
 // Error Handling Middleware (must be last)
 app.use(errorHandler);
 
