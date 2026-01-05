@@ -17,4 +17,6 @@ router.get('/getAllEvents', fetchController.getAllEvents);
 
 router.get('/getTodayClaimRecord', fetchController.getTodayClaimRecord);
 
+router.get('/getStudentClaimReports', fetchController.getStudentClaimReports);
+
 module.exports = router;

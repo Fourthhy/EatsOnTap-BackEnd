@@ -158,7 +158,7 @@ const getAllClassAdvisers = async (req, res, next) => {
 const getAllBasicEducationMealRequest = async (req, res, next) => {
   try {
     const now = new Date();
-    
+
     // 1. Get the "Calendar Date" string specifically for Philippines
     // This tells us "It is Jan 2nd in Manila", regardless of what the server thinks
     const phDateString = now.toLocaleDateString("en-US", { timeZone: "Asia/Manila" });
@@ -167,18 +167,18 @@ const getAllBasicEducationMealRequest = async (req, res, next) => {
     // We append the time explicitly to force the correct window
     const startOfDay = new Date(new Date(phDateString).toLocaleString("en-US", { timeZone: "Asia/Manila" }));
     startOfDay.setHours(0, 0, 0, 0);
-    
+
     // FIX: The object above is in Server Time. We need to shift it if the Server is UTC.
     // Actually, an easier way is to define the UTC window manually:
-    
+
     // --- 🟢 ROBUST OFFSET METHOD ---
-    
+
     // 1. Get current time
     const current = new Date();
-    
+
     // 2. Shift 'current' to PH time (UTC + 8 hours)
     // We add 8 hours (in ms) to the UTC time
-    const phOffset = 8 * 60 * 60 * 1000; 
+    const phOffset = 8 * 60 * 60 * 1000;
     const phTimeValue = new Date(current.getTime() + phOffset);
 
     // 3. Zero out the hours/minutes/seconds to get "Start of PH Day"
@@ -186,7 +186,7 @@ const getAllBasicEducationMealRequest = async (req, res, next) => {
 
     // 4. Shift BACK to UTC to get the database query timestamp
     const queryStart = new Date(phTimeValue.getTime() - phOffset);
-    
+
     // 5. Create End of Day (Start + 24 hours - 1ms)
     const queryEnd = new Date(queryStart.getTime() + (24 * 60 * 60 * 1000) - 1);
 
@@ -211,10 +211,10 @@ const getAllHigherEducationMealRequest = async (req, res, next) => {
   try {
     // 1. Get current time (Server Time)
     const current = new Date();
-    
+
     // 2. Shift 'current' to PH time (UTC + 8 hours)
     // We add 8 hours (in ms) to the UTC time
-    const phOffset = 8 * 60 * 60 * 1000; 
+    const phOffset = 8 * 60 * 60 * 1000;
     const phTimeValue = new Date(current.getTime() + phOffset);
 
     // 3. Zero out the hours/minutes/seconds to get "Start of PH Day"
@@ -223,7 +223,7 @@ const getAllHigherEducationMealRequest = async (req, res, next) => {
     // 4. Shift BACK to UTC to get the database query timestamp
     // This gives us the exact UTC moment that "PH Midnight" started
     const queryStart = new Date(phTimeValue.getTime() - phOffset);
-    
+
     // 5. Create End of Day (Start + 24 hours - 1ms)
     const queryEnd = new Date(queryStart.getTime() + (24 * 60 * 60 * 1000) - 1);
 
@@ -251,33 +251,166 @@ const getAllEvents = async (req, res, next) => {
 }
 
 const getTodayClaimRecord = async (req, res, next) => {
-    try {
-        // 1. Calculate "Start" and "End" of the current server day
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
+  try {
+    // 1. Calculate "Start" and "End" of the current server day
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
 
-        // 2. Find the single document that matches this time window
-        const todayRecord = await claimRecord.findOne({
-            claimDate: { 
-                $gte: startOfDay, 
-                $lte: endOfDay 
-            }
+    // 2. Find the single document that matches this time window
+    const todayRecord = await claimRecord.findOne({
+      claimDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    if (!todayRecord) {
+      console.warn("There are no records!");
+    }
+
+    // 3. Return the record
+    res.status(200).json(todayRecord);
+
+  } catch (error) {
+    next(error);
+  }
+}
+
+const getStudentClaimReports = async (req, res) => {
+  try {
+    // 1. Fetch Students and Advisers
+    // Optimization: We use .select() to only get the fields we need for this report
+    const [students, advisers] = await Promise.all([
+      Student.find({})
+        .select('first_name middle_name last_name section program year claimRecords')
+        .lean(),
+      classAdviser.find({}).lean()
+    ]);
+
+    // 2. Create Adviser Map (Same as your reference)
+    const adviserMap = {};
+    advisers.forEach(adv => {
+      const fullName = `${!adv.honorific ? "" : adv.honorific} ${adv.first_name} ${adv.last_name}`.trim();
+      adviserMap[adv.section] = fullName;
+    });
+
+    // 3. Initialize Buckets
+    const departmentsMap = {
+      "preschool": {},
+      "primaryEducation": {},
+      "intermediate": {},
+      "juniorHighSchool": {},
+      "seniorHighSchool": {},
+      "higherEducation": {}
+    };
+
+    const parseYear = (yearStr) => parseInt(yearStr, 10);
+
+    // 4. Bucket Sort (Distribute students into categories/levels)
+    students.forEach(student => {
+      let deptKey = "";
+      const yearVal = parseYear(student.year);
+
+      // Determine Department ID
+      if (student.program) {
+        deptKey = "higherEducation";
+      } else if (student.section) {
+        if (isNaN(yearVal) || yearVal === 0) deptKey = "preschool";
+        else if (yearVal >= 1 && yearVal <= 3) deptKey = "primaryEducation";
+        else if (yearVal >= 4 && yearVal <= 6) deptKey = "intermediate";
+        else if (yearVal >= 7 && yearVal <= 10) deptKey = "juniorHighSchool";
+        else if (yearVal >= 11 && yearVal <= 12) deptKey = "seniorHighSchool";
+        else deptKey = "preschool";
+      } else {
+        return; // Skip invalid
+      }
+
+      // Initialize Year Level
+      if (!departmentsMap[deptKey][student.year]) {
+        departmentsMap[deptKey][student.year] = {};
+      }
+
+      // Determine Group Name (Program for HigherEd, Section for BasicEd)
+      const groupName = deptKey === "higherEducation" ? student.program : student.section;
+
+      // Initialize Group
+      if (!departmentsMap[deptKey][student.year][groupName]) {
+        departmentsMap[deptKey][student.year][groupName] = [];
+      }
+
+      // Push Student to the bucket
+      departmentsMap[deptKey][student.year][groupName].push(student);
+    });
+
+    // 5. Transform to Final Output Array
+    const responseData = Object.keys(departmentsMap).map(deptKey => {
+      const yearsObj = departmentsMap[deptKey];
+
+      const levels = Object.keys(yearsObj).map(yearKey => {
+        const groupsObj = yearsObj[yearKey];
+
+        const groups = Object.keys(groupsObj).map(groupKey => {
+          const rawStudentList = groupsObj[groupKey];
+
+          // 🟢 TARGETED CHANGE: Map only the fields you requested
+          const processedStudents = rawStudentList.map(s => ({
+            // Composed Name
+            name: `${s.first_name} ${s.middle_name || ''} ${s.last_name}`.replace(/\s+/g, ' ').trim(),
+
+            // Section & Grade Level
+            section: deptKey === "higherEducation" ? groupKey : s.section,
+            gradeLevel: s.year,
+
+            // ✅ Claim Records (The core requirement)
+            claimRecords: s.claimRecords || []
+          }));
+
+          const groupObject = {
+            section: groupKey,
+            studentCount: processedStudents.length,
+            students: processedStudents
+          };
+
+          // Attach Adviser (Preserving structure)
+          if (deptKey === "higherEducation") {
+            groupObject.adviser = "N/A";
+          } else {
+            groupObject.adviser = adviserMap[groupKey] || "Unassigned";
+          }
+
+          return groupObject;
         });
 
-        if (!todayRecord) {
-            console.warn("There are no records!");
-        }
+        return {
+          levelName: yearKey,
+          sections: groups
+        };
+      });
 
-        // 3. Return the record
-        res.status(200).json(todayRecord);
+      // Sort Levels numerically
+      levels.sort((a, b) => {
+        const valA = parseYear(a.levelName) || -1;
+        const valB = parseYear(b.levelName) || -1;
+        return valA - valB;
+      });
 
-    } catch (error) {
-        next(error);
-    }
-}
+      return {
+        category: deptKey,
+        levels: levels
+      };
+    });
+
+    // 6. Return Data
+    return res.status(200).json(responseData);
+
+  } catch (error) {
+    console.error("Claim Report Error:", error);
+    return res.status(500).json({ error: "Failed to generate claim report" });
+  }
+};
 
 export {
   getUnifiedSchoolData,
@@ -285,5 +418,6 @@ export {
   getAllBasicEducationMealRequest,
   getAllHigherEducationMealRequest,
   getAllEvents,
-  getTodayClaimRecord
+  getTodayClaimRecord,
+  getStudentClaimReports
 }
