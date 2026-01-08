@@ -1,5 +1,5 @@
 import setting from "../models/setting.js";
-import { startScheduler } from "../utils/scheduler.js";
+import { restartScheduler } from "../utils/scheduler.js";
 
 const createDefaultSetting = async (req, res, next) => {
     try {
@@ -176,17 +176,12 @@ const editSetting = async (req, res, next) => {
         await existingSetting.save();
 
         res.status(200).json({ message: `Setting '${setting}' updated successfully`, setting: existingSetting });
-        await startScheduler();
+        await restartScheduler();
 
     } catch (error) {
         next(error); // Use next to pass error to Express error handler
     }
 };
-
-
-
-
-
 
 export {
     createDefaultSetting,

@@ -12,8 +12,8 @@ const settingSchema = new mongoose.Schema({
     endDay: { type: String, required: true }, //1-31, but it has a validation on the months that have 30 days and 31 days, especially february that has a leap year day
     startMonth: { type: String, required: true }, //1-12
     endMonth: { type: String, required: true }, //1-12
-    startDayOfWeek: { type: String, required: true }, //0-6 //has a validation
-    endDayOfWeek: { type: String, required: true }, //0-6 //has a validation
+    startDayOfWeek: { type: String, required: true }, //0-6 //has a validation, 0 is Sunday
+    endDayOfWeek: { type: String, required: true }, //0-6 //has a validation, 0 is Sunday
 });
 
 //all setting must have a validation first if the input is within the valid ranges.

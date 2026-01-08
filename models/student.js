@@ -11,9 +11,10 @@ const studentSchema = new mongoose.Schema({
   program: { type: String }, //for higher education
   year: { type: String, required: true },
   claimRecords: [{
+    _id: false,
     date: { type: Date },
     creditClaimed: { type: Number },
-    remarks: { type: [String], enum: ["CLAIMED", "UNCLAIMED", "WAIVED"] },
+    remarks: { type: [String], enum: ["CLAIMED", "UNCLAIMED", "WAIVED", "UNASSIGNED"] },
   }],
   rfidTag: { type: String, default: null },
 });
