@@ -1,11 +1,12 @@
-// controllers/claimController.js
-import Student from "../models/student.js";
-import ClaimRecord from "../models/claimRecord.js"
-import Credit from "../models/credit.js";
+import Student from '../models/student.js';
+import ClaimRecord from '../models/claimRecord.js';
+import Credit from '../models/credit.js';
 
-// 🟢 HELPER: Get PH Date Range (Reused from previous steps)
+// 🟢 HELPER: Get PH Date Range
+// Ensures we are always looking at the correct "Today" in Philippines Time
 const getPHDateRange = () => {
     const now = new Date();
+    // Force specific timezone handling
     const options = { timeZone: "Asia/Manila", year: 'numeric', month: 'numeric', day: 'numeric' };
     const phDateString = now.toLocaleDateString("en-US", options); 
     const [month, day, year] = phDateString.split('/').map(num => parseInt(num));
@@ -25,16 +26,27 @@ const getPHDateRange = () => {
 const initializeTodayRecord = async () => {
     try {
         console.log("🔄 STARTING: Initializing Daily Student Records...");
-        const today = new Date();
+        const { start, end } = getPHDateRange();
+
+        // Check if we already initialized to avoid duplicates
+        // We check if any student already has a record for this exact date range
+        const alreadyInitialized = await Student.findOne({
+            "claimRecords.date": { $gte: start, $lte: end }
+        });
+
+        if (alreadyInitialized) {
+            console.log("ℹ️ SKIPPED: Records for today are already initialized.");
+            return;
+        }
 
         // Push a default "WAIVED" entry to ALL students
-        // This acts as the placeholder. If they don't claim later, it stays WAIVED (or we update it).
+        // Using the 'start' date ensures the timestamp is uniform (00:00 PH Time)
         await Student.updateMany({}, {
             $push: {
                 claimRecords: {
-                    date: today,
+                    date: start, 
                     creditClaimed: 0,
-                    remarks: ["UNASSIGNED"] 
+                    remarks: ["WAIVED"] 
                 }
             }
         });
@@ -70,7 +82,7 @@ const finalizeTodayRecord = async () => {
             return console.log("⚠️ NO CLAIM RECORD FOUND FOR TODAY. Skipping finalization.");
         }
 
-        // C. Prepare Bulk Operations (High Performance)
+        // C. Prepare Bulk Operations
         const bulkOps = [];
         const flattenedRecords = [];
 
@@ -88,6 +100,7 @@ const finalizeTodayRecord = async () => {
             let creditUsed = 0;
 
             // Logic: Did they touch their credits?
+            // Since maxCredit is constant for the day, this check is safe.
             if (remainingBalance < maxCredit) {
                 // They spent something
                 finalStatus = "CLAIMED";
@@ -99,7 +112,7 @@ const finalizeTodayRecord = async () => {
             }
 
             // Add to Bulk Operation Queue
-            // We search for the student AND the specific array item matching today's date range
+            // Update the SPECIFIC history item for today
             bulkOps.push({
                 updateOne: {
                     filter: { 
@@ -129,7 +142,7 @@ const finalizeTodayRecord = async () => {
     }
 };
 
-export { 
+export {
     initializeTodayRecord,
     finalizeTodayRecord
 };

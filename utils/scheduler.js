@@ -2,63 +2,186 @@ import cron from 'node-cron';
 import Setting from '../models/setting.js';
 const TARGET_TIMEZONE = "Asia/Manila";
 
-// Import Controllers
+// 🟢 IMPORT: Claim Logic
 import { 
     assignCredits, 
     removeCredits, 
     assignCreditsForEvents 
 } from '../controllers/claimController.js';
 
+// 🟢 IMPORT: Report Logic
 import { 
     initializeTodayRecord, 
     finalizeTodayRecord 
 } from '../controllers/reportController.js'; 
 
-// 🟢 1. GLOBAL VARIABLE TO TRACK TASKS
+// 🟢 GLOBAL VARIABLE TO TRACK TASKS (For Hot Reloading)
 let activeTasks = [];
 
 // --- Helper Functions ---
 const cronField = (value, fieldType) => {
-    if (fieldType === 'dayOfWeek') return value; 
+    if (fieldType === 'dayOfWeek') {
+        return value; // '0' means Sunday
+    }
     return value === '0' ? '*' : value;
 };
 
-// ... (settingActive and settingInactive functions remain the same) ...
-const settingActive = async (SETTING_NAME) => { /* ... code ... */ };
-const settingInactive = async (SETTING_NAME) => { /* ... code ... */ };
+// Enable a setting by its name
+const settingActive = async (SETTING_NAME) => {
+    try {
+        const setting = await Setting.findOneAndUpdate(
+            { setting: SETTING_NAME },
+            { $set: { settingActive: true } },
+            { new: true }
+        );
+        if (!setting) {
+            return console.log(`${SETTING_NAME} is missing. Cannot enable`);
+        }
+        console.log('----------');
+        console.log(`✅ ${SETTING_NAME}: ENABLED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+        console.log('----------');
+    } catch (error) {
+        console.error(`error enabling setting ${SETTING_NAME}:`, error);
+    }
+};
 
+// Disable a setting by its name
+const settingInactive = async (SETTING_NAME) => {
+    try {
+        const setting = await Setting.findOneAndUpdate(
+            { setting: SETTING_NAME },
+            { $set: { settingActive: false } },
+            { new: true }
+        );
+        if (!setting) {
+            return console.log(`${SETTING_NAME} is missing. Cannot disable`);
+        }
+        console.log('----------');
+        console.log(`❌ ${SETTING_NAME}: DISABLED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+        console.log('----------');
+    } catch (error) {
+        console.error(`error disabling setting ${SETTING_NAME}:`, error);
+    }
+};
+
+// 🟢 THE EXECUTION SWITCHBOARD (Calling the imported functions)
+const executeSetting = async (SETTING_NAME) => {
+    const dayOfWeek = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+    const now = new Date();
+    const todayIndex = now.getDay();
+    const dayToday = dayOfWeek[todayIndex];
+
+    switch (SETTING_NAME) {
+        case 'SCHEDULE-ASSIGN-CREDITS':
+            try {
+                // Assign daily credits
+                await assignCredits(dayToday);
+                // Assign event based credits
+                await assignCreditsForEvents();
+                console.log('💰 Assigned credit to all approved students in the eligiblity list');
+            } catch (error) {
+                console.error('Error in scheduled credit assignment', error)
+            }
+            console.log(`✅ ${SETTING_NAME}: EXECUTED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+            break;
+
+        case 'REMOVE-CREDITS':
+            try {
+                console.log('⏳ Starting End-of-Day Finalization...');
+                
+                // 1. Finalize the report (Calculate who claimed vs unclaimed)
+                await finalizeTodayRecord();
+                
+                // 2. Wipe the credits
+                await removeCredits();
+                
+                console.log('✅ Finalized records and removed credits from all students.');
+            } catch (error) {
+                console.error('Error in scheduled credit removal/finalization:', error);
+            }
+            console.log(`✅ ${SETTING_NAME}: EXECUTED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+            break;
+
+        case 'SUBMIT-MEAL-REQUEST': 
+            try {
+                console.log('⏳ Starting Start-of-Day Initialization...');
+                
+                // 1. Initialize DB Records for Today
+                await initializeTodayRecord();
+                
+                // 2. Turn ON the submission window
+                await settingActive(SETTING_NAME);
+                
+                console.log('✅ Daily student records initialized.');
+            } catch (error) {
+                console.error('Error in scheduled initialization:', error);
+            }
+            console.log(`✅ ${SETTING_NAME}: EXECUTED at ${new Date().toLocaleTimeString(undefined, { timeZone: TARGET_TIMEZONE })}`);
+            break;
+
+        case 'STUDENT-CLAIM':
+            try {
+                // Just flip the switch to allow claiming
+                await settingActive(SETTING_NAME);
+                console.log('🍔 Student Meal Claiming is now OPEN.');
+            } catch (error) {
+                console.error('Error starting student claim:', error);
+            }
+            break;
+    }
+    console.log('----------');
+}
+
+// Builds cron expressions array for the setting
 const getSettingCronExpressions = async (settingName) => {
-    // ... (This function remains exactly the same) ...
-    if (!settingName) return [];
+    if (!settingName) {
+        console.error("settingName argument is required.");
+        return [];
+    }
     const settings = await Setting.findOne({ setting: settingName });
-    if (!settings) return [];
+    if (!settings) {
+        console.error(`Setting '${settingName}' not found.`);
+        return [];
+    }
 
+    // Apply 'cronField' for all cron fields.
     const startFields = [
-        settings.startMinute, settings.startHour,
-        cronField(settings.startDay, ''), cronField(settings.startMonth, ''),
+        settings.startMinute,
+        settings.startHour,
+        cronField(settings.startDay, ''),
+        cronField(settings.startMonth, ''),
         cronField(settings.startDayOfWeek, 'dayOfWeek')
     ];
     const endFields = [
-        settings.endMinute, settings.endHour,
-        cronField(settings.endDay, ''), cronField(settings.endMonth, ''),
+        settings.endMinute,
+        settings.endHour,
+        cronField(settings.endDay, ''),
+        cronField(settings.endMonth, ''),
         cronField(settings.endDayOfWeek, 'dayOfWeek')
     ];
 
+    if (startFields.some(f => f === undefined || f === null)) {
+        console.error("One or more 'start' fields are missing in settings:", startFields);
+        return [];
+    }
+    if (endFields.some(f => f === undefined || f === null)) {
+        console.error("One or more 'end' fields are missing in settings:", endFields);
+        return [];
+    }
+
     return [
-        { type: 'start', expression: startFields.join(' ') },
-        { type: 'end', expression: endFields.join(' ') }
+        {
+            type: 'start',
+            expression: startFields.join(' ')
+        },
+        {
+            type: 'end',
+            expression: endFields.join(' ')
+        }
     ];
 };
 
-const executeSetting = async (SETTING_NAME) => {
-    // ... (This function remains exactly the same) ...
-    // COPY PASTE your switch cases here (SCHEDULE-ASSIGN-CREDITS, SUBMIT-MEAL-REQUEST, etc.)
-    // I am omitting the body for brevity, but keep your existing logic!
-    console.log(`Executing ${SETTING_NAME}`); 
-}
-
-
-// 🟢 2. STOP FUNCTION (The Cleanup Crew)
+// 🟢 CLEANUP FUNCTION
 const stopScheduler = () => {
     if (activeTasks.length > 0) {
         console.log(`🛑 Stopping ${activeTasks.length} active cron jobs...`);
@@ -68,8 +191,7 @@ const stopScheduler = () => {
     }
 };
 
-
-// --- Main Scheduler ---
+// --- Main Scheduler Loop ---
 const startScheduler = async () => {
     
     // 🟢 Step 1: Always stop old tasks first!
@@ -80,12 +202,10 @@ const startScheduler = async () => {
     
     // Helper to register a task and track it
     const scheduleTask = (expression, func, description) => {
-        // Validate expression before scheduling to prevent crashes
         if (!cron.validate(expression)) {
             console.error(`❌ Invalid Cron Expression skipped: ${expression} (${description})`);
             return;
         }
-
         const task = cron.schedule(expression, func, { timezone: TARGET_TIMEZONE });
         activeTasks.push(task); // Store reference
         console.log(`⏰ Scheduled: ${description}`);
@@ -130,7 +250,7 @@ const startScheduler = async () => {
         }
     }
 
-    // Handle Generic Settings
+    // Handle Generic/Other Settings
     for (const setting of allSettings) {
         const name = setting.setting;
         if (criticalSettings.includes(name)) continue; // Skip priority ones
@@ -153,8 +273,7 @@ const startScheduler = async () => {
 };
 
 // 🟢 Export both start (for server boot) and restart (for updates)
-// They are actually the same function now because startScheduler handles the cleanup internally.
 export {
-    startScheduler as restartScheduler, // Alias for clarity when importing in controllers
+    startScheduler as restartScheduler, 
     startScheduler
 };
