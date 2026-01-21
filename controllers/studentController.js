@@ -2,6 +2,7 @@
 import Student from '../models/student.js';
 import csv from 'csv-parser';
 import stream from 'stream';
+import SectionProgram from "../models/sectionprogram.js"
 
 import { logWaiveStatus, logEligibilityStatus } from "./loggerController.js";
 
@@ -9,11 +10,86 @@ import { logWaiveStatus, logEligibilityStatus } from "./loggerController.js";
 // Add a new student
 const createStudent = async (req, res, next) => {
   try {
-    const newStudent = new Student(req.body);
+    // 1. Destructure all fields
+    const { 
+      studentID, 
+      first_name, 
+      middle_name, 
+      last_name, 
+      section, 
+      program, 
+      year, 
+      academicStatus 
+    } = req.body;
+
+    // 2. Validate Required Fields
+    if (!studentID || !first_name || !last_name || !middle_name || !year) {
+      return res.status(400).json({ message: "Missing required fields: ID, First Name, Middle Name, Last Name, or Year." });
+    }
+
+    // 3. Logic Check: Basic Ed vs Higher Ed
+    if (!section && !program) {
+      return res.status(400).json({ message: "Student must belong to either a Section (Basic Ed) or Program (Higher Ed)." });
+    }
+
+    // 4. Duplicate Check: Student ID
+    const existingStudent = await Student.findOne({ studentID });
+    if (existingStudent) {
+      return res.status(409).json({ message: `Student ID '${studentID}' already exists.` });
+    }
+
+    // 5. Create the Student
+    const newStudent = new Student({
+      studentID,
+      first_name: first_name.trim(),
+      middle_name: middle_name ? middle_name.trim() : "",
+      last_name: last_name.trim(),
+      section: section ? section.trim() : null, 
+      program: program ? program.trim() : null, 
+      year,
+      academicStatus: academicStatus || undefined, 
+      claimRecords: [] 
+    });
+
     await newStudent.save();
-    res.status(201).json(newStudent);
+
+    // 🟢 6. UPDATE STUDENT COUNT (New Logic)
+    // We search for the Section/Program document that matches this student's details
+    // and increase the count by 1.
+    const updateQuery = { year: year };
+    
+    // Add the specific filter (Section takes priority if both exist, or handle logic as needed)
+    if (section) {
+        updateQuery.section = section.trim();
+    } else if (program) {
+        updateQuery.program = program.trim();
+    }
+
+    await SectionProgram.findOneAndUpdate(
+        updateQuery,
+        { $inc: { studentCount: 1 } } // $inc creates the field if it doesn't exist
+    );
+
+    // 7. Socket.io Broadcast
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit('update-student-register', { type: 'All-Students', message: 'Update Student Register' });
+      console.log('🔔 Socket Emitted to all student clients');
+    } else {
+      console.error('❌ Socket.io not found');
+    }
+
+    res.status(201).json({
+      message: "Student created successfully",
+      data: newStudent
+    });
+
   } catch (error) {
-    next(error); // Pass error to error handling middleware
+    if (error.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map(val => val.message);
+        return res.status(400).json({ message: "Validation Error", errors: messages });
+    }
+    next(error); 
   }
 };
 
@@ -47,7 +123,7 @@ const getStudentBySection = async (req, res, next) => {
     if (!students) {
       return res.status(404).json({ message: `cant find students in ${sectionName} section` })
     }
-    res.json({students});
+    res.json({ students });
   } catch (error) {
     next(error);
   }
@@ -108,7 +184,7 @@ const waiveStudent = async (req, res, next) => {
     student.mealEligibilityStatus = 'WAIVED';
     student.save()
     await logWaiveStatus(student.studentID, 'WAIVED')
-    return res.status(200).json({message: `${student.studentID} is now WAIVED`});
+    return res.status(200).json({ message: `${student.studentID} is now WAIVED` });
 
   } catch (error) {
     next(error)
@@ -119,17 +195,17 @@ const waiveStudent = async (req, res, next) => {
 const eligibleStudent = async (req, res, next) => {
   //check if student data exist
   try {
-    const student = await Student.findOne({ studentID: req.params.studentID }); 
+    const student = await Student.findOne({ studentID: req.params.studentID });
 
     if (!student) {
-      return res.status(404).json({ message: "Student not found"})
+      return res.status(404).json({ message: "Student not found" })
     }
 
     student.mealEligibilityStatus = 'ELIGIBLE';
     student.creditValue = 60;
     await logEligibilityStatus(student.studentID, 'ELIGIBLE')
     student.save()
-    return res.status(200).json({message: `${student.studentID} is now ELIGIBLE`});
+    return res.status(200).json({ message: `${student.studentID} is now ELIGIBLE` });
   } catch (error) {
     next(error);
   }
@@ -142,20 +218,20 @@ const studentRFIDLinking = async (req, res, next) => {
 
     // 2. Validate: Did we find a student?
     if (!student) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Student not found.' 
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found.'
       });
     }
 
     // 3. Get the new RFID tag. 
     // Best Practice: Use req.body for data updates, not req.params.
-    const { rfidTag } = req.body; 
+    const { rfidTag } = req.body;
 
     if (!rfidTag) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'rfidTag is required in the request body.' 
+      return res.status(400).json({
+        success: false,
+        message: 'rfidTag is required in the request body.'
       });
     }
 
@@ -163,9 +239,9 @@ const studentRFIDLinking = async (req, res, next) => {
     // This prevents two students from sharing the same card.
     const existingUser = await Student.findOne({ rfidTag });
     if (existingUser) {
-      return res.status(409).json({ 
-        success: false, 
-        message: 'This RFID tag is already linked to another student.' 
+      return res.status(409).json({
+        success: false,
+        message: 'This RFID tag is already linked to another student.'
       });
     }
 

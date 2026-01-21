@@ -18,4 +18,6 @@ router.put('/assign-credit', claimController.assignCredits);
 //new route for deducting remaining credits
 router.put('/:studentID/remove-credits', claimController.removeCredits);
 
+router.get('/fakeMealClaim', claimController.fakeMealClaim)
+
 module.exports = router;

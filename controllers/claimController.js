@@ -357,7 +357,7 @@ const assignCredits = async (dayToday) => {
 
         // 4. Fetch Student Details (We need their Section/Program to organize the ClaimRecord)
         const students = await Student.find({ studentID: { $in: Array.from(studentIds) } })
-                                      .select('studentID section program year');
+            .select('studentID section program year');
 
         // 5. Group Students by Section (Required for ClaimRecord Schema)
         // Map Structure: { "Grade 1 - Hope": [StudentObj, StudentObj], ... }
@@ -366,7 +366,7 @@ const assignCredits = async (dayToday) => {
         students.forEach(student => {
             // Determine grouping key: Section for Basic Ed, Program + Year for Higher Ed
             const groupKey = student.section || `${student.program} ${student.year}`;
-            
+
             if (!sectionMap[groupKey]) {
                 sectionMap[groupKey] = [];
             }
@@ -381,7 +381,7 @@ const assignCredits = async (dayToday) => {
 
         // 6. Update Today's Claim Record
         const { start, end } = getPHDateRange();
-        
+
         // Find existing record or create new one
         let dailyRecord = await ClaimRecord.findOne({
             claimDate: { $gte: start, $lte: end }
@@ -406,7 +406,7 @@ const assignCredits = async (dayToday) => {
                 // Filter out duplicates (students already assigned)
                 const existingIDs = new Set(existingSection.eligibleStudents.map(s => s.studentID));
                 const uniqueToAdd = newEligibles.filter(s => !existingIDs.has(s.studentID));
-                
+
                 existingSection.eligibleStudents.push(...uniqueToAdd);
             } else {
                 // Add new section entry
@@ -492,6 +492,34 @@ const assignCreditsForEvents = async () => {
         }
     }
 };
+const fakeMealClaim = async (req, res, next) => {
+    try {
+        // 🟢 CHANGE: Use req.query for GET requests
+        const { studentInput } = req.query;
+
+        if (!studentInput) {
+            return res.status(400).json({ message: "Please provide a Student ID or RFID Tag." });
+        }
+
+        // Search for a student matching EITHER the studentID OR the rfidTag
+        const student = await Student.findOne({
+            $or: [
+                { studentID: studentInput },
+                { rfidTag: studentInput }
+            ]
+        });
+
+        if (!student) {
+            return res.status(404).json({ message: "Student not found." });
+        }
+
+        // Return the student data
+        res.status(200).json(student);
+
+    } catch (error) {
+        next(error);
+    }
+};
 
 
 
@@ -505,5 +533,6 @@ export {
     deductCredits,
     removeCredits,
     assignCredits,
-    assignCreditsForEvents
+    assignCreditsForEvents,
+    fakeMealClaim
 } 

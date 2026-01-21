@@ -10,13 +10,13 @@ const studentSchema = new mongoose.Schema({
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
   year: { type: String, required: true },
+  academicStatus: { type: [String], enum: ["IRREGULAR", "REGULAR"], default: "REGULAR" },
   claimRecords: [{
     _id: false,
     date: { type: Date },
     creditClaimed: { type: Number },
     remarks: { type: [String], enum: ["CLAIMED", "UNCLAIMED", "WAIVED", "UNASSIGNED"] },
   }],
-  rfidTag: { type: String, default: null },
 });
 
 module.exports = mongoose.model('Student', studentSchema);

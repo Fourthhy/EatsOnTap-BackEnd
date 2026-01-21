@@ -62,7 +62,7 @@ const approveMealEligibilityRequest = async (req, res, next) => {
             eligibleStudents: eligibleStudentsData.map(student => ({
                 studentID: student.studentID,
                 claimType: 'ELIGIBLE',
-                creditBalance: student.creditValue || 0,
+                creditBalance: 60, //changed to 60 but change to student.creditValue || 0 later
                 onHandCash: 0
             })),
 

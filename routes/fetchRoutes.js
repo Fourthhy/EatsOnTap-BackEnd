@@ -19,4 +19,8 @@ router.get('/getTodayClaimRecord', fetchController.getTodayClaimRecord);
 
 router.get('/getStudentClaimReports', fetchController.getStudentClaimReports);
 
+router.get('/getSectionProgramList', fetchController.getSectionProgramList);
+
+router.get('/getClassAdvisers', fetchController.getClassAdvisers);
+
 module.exports = router;

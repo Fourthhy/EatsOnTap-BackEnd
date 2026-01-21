@@ -19,6 +19,7 @@ const settingRoutes = require('./routes/settingRoutes');
 const creditRoutes = require('./routes/creditRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const fetchRoutes = require('./routes/fetchRoutes');
+const sectionprogramRoutes = require('./routes/sectionprogramRoutes');
 
 //for development purposes
 const developerRoutes = require('./routes/developerRouter');
@@ -75,6 +76,7 @@ app.use('/api/logger', loggerRoutes);
 app.use('/api/setting', settingRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/sectionprogram', sectionprogramRoutes);
 
 //for development purposes
 app.use('/api/dev', developerRoutes);

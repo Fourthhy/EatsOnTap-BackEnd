@@ -7,6 +7,8 @@ import Event from "../models/event.js"
 
 import claimRecord from "../models/claimRecord.js"
 
+import SectionProgram from "../models/sectionprogram.js"
+
 const getUnifiedSchoolData = async (req, res) => {
   try {
     // 
@@ -412,6 +414,52 @@ const getStudentClaimReports = async (req, res) => {
   }
 };
 
+const getSectionProgramList = async (req, res, next) => {
+  try {
+    // 1. Fetch all records
+    // We use .lean() for faster performance since we just need to read the data
+    const sectionPrograms = await SectionProgram.find({})
+      .sort({ department: 1, year: 1, section: 1, program: 1 }); // Optional: Sorts A-Z
+
+    // 2. Send Response
+    // If no data exists, this simply returns [] (an empty array), which is a valid 200 OK response.
+    res.status(200).json(sectionPrograms);
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getClassAdvisers = async (req, res, next) => {
+  try {
+    // 1. Fetch data but EXCLUDE email and password immediately
+    // .lean() converts Mongoose documents to plain JS objects (faster for read-only)
+    const advisers = await ClassAdviser.find({})
+      .select('-email -password')
+      .lean();
+
+    // 2. Transform the data to combine names
+    const formattedData = advisers.map(adviser => {
+      // Check if middle name exists to avoid double spaces
+      const middle = adviser.middle_name ? ` ${adviser.middle_name}` : '';
+
+      return {
+        _id: adviser._id, // Keep the mongo ID if needed
+        userID: adviser.userID,
+        name: `${adviser.honorific} ${adviser.first_name}${middle} ${adviser.last_name}`,
+        role: adviser.role,
+        section: adviser.section
+      };
+    });
+
+    // 3. Send the transformed list
+    res.status(200).json(formattedData);
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 export {
   getUnifiedSchoolData,
   getAllClassAdvisers,
@@ -419,5 +467,7 @@ export {
   getAllHigherEducationMealRequest,
   getAllEvents,
   getTodayClaimRecord,
-  getStudentClaimReports
+  getStudentClaimReports,
+  getSectionProgramList,
+  getClassAdvisers
 }
