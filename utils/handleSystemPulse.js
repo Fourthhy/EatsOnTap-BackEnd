@@ -13,23 +13,28 @@ const executeTaskLogic = async (settingName) => {
     switch (settingName) {
         case 'ASSIGN-CREDITS': // Start of Day Logic
             await initializeTodayRecord();
+            console.log("Executed initialize today record")
             await assignCredits("MONDAY"); // You might need to dynamically get the day string
+            console.log("Executed assign credits")
             await assignCreditsForEvents();
-            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { settingActive: true });
+            console.log("Executed assign credits for events")
+            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { isActive: true });
+            console.log("Executed true setting active for submit meal request")
+            
             break;
 
         case 'REMOVE-CREDITS': // End of Day Logic
             await finalizeTodayRecord();
             await removeCredits();
-            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { settingActive: false });
-            await Setting.findOneAndUpdate({ setting: 'STUDENT-CLAIM' }, { settingActive: false });
+            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { isActive: false });
+            await Setting.findOneAndUpdate({ setting: 'STUDENT-CLAIM' }, { isActive: false });
             break;
 
         case 'STUDENT-CLAIM': // Lunch Logic
-            await Setting.findOneAndUpdate({ setting: 'STUDENT-CLAIM' }, { settingActive: true });
+            await Setting.findOneAndUpdate({ setting: 'STUDENT-CLAIM' }, { isActive: true });
             break;
         case 'SUBMIT-MEAL-REQUEST': //Submission of Meal Request Logic
-            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { settingActive: true });
+            await Setting.findOneAndUpdate({ setting: 'SUBMIT-MEAL-REQUEST' }, { isActive: true });
             break;
     }
 };
