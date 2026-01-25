@@ -505,7 +505,6 @@ const fakeMealClaim = async (req, res, next) => {
         if (!student) {
             return res.status(404).json({ message: "Student not found." });
         }
-
         // Return the student data
         res.status(200).json(student);
         student.temporaryClaimStatus[0] = "CLAIMED";
