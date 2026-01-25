@@ -62,14 +62,14 @@ const createDefaultSetting = async (req, res, next) => {
 // 2. Fetch a specific setting
 const fetchSetting = async (req, res, next) => {
     try {
-        const { setting } = req.body;
+        const { SETTING_NAME } = req.params; 
         
-        const foundSetting = await Setting.findOne({ setting: setting });
+        const foundSetting = await Setting.findOne({ setting: SETTING_NAME });
         
         if (!foundSetting) {
             return res.status(404).json({ message: "Setting not found" });
         }
-        res.status(200).json(foundSetting); // Return the object directly
+        res.status(200).json(foundSetting); 
     } catch (error) {
         next(error);
     }

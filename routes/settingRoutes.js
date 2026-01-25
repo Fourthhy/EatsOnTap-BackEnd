@@ -1,18 +1,18 @@
 const express = require('express');
 const router = express.Router();
 
-const setttingController = require('../controllers/settingController');
+const settingController = require('../controllers/settingController');
 
-router.post('/createDefaultSetting', setttingController.createDefaultSetting);
+router.post('/createDefaultSetting', settingController.createDefaultSetting);
 
-router.get('/fetchSetting', setttingController.fetchSetting);
+router.get('/fetchSetting/:SETTING_NAME', settingController.fetchSetting);
 
-router.put('/enableSetting/:SETTING_NAME', setttingController.enableSetting);
+router.put('/enableSetting/:SETTING_NAME', settingController.enableSetting);
 
-router.put('/disableSetting/:SETTING_NAME', setttingController.disableSetting);
+router.put('/disableSetting/:SETTING_NAME', settingController.disableSetting);
 
-router.put('/editSetting', setttingController.editSetting);
+router.put('/editSetting', settingController.editSetting);
 
-router.get('/fetchAllSettings', setttingController.fetchAllSettings);
+router.get('/fetchAllSettings', settingController.fetchAllSettings);
 
 module.exports = router;
