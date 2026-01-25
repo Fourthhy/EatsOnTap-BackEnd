@@ -5,7 +5,7 @@ const setttingController = require('../controllers/settingController');
 
 router.post('/createDefaultSetting', setttingController.createDefaultSetting);
 
-router.get('/seeSetting/:SETTING_NAME', setttingController.fetchSetting);
+router.get('/fetchSetting', setttingController.fetchSetting);
 
 router.put('/enableSetting/:SETTING_NAME', setttingController.enableSetting);
 

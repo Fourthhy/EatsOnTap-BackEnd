@@ -62,10 +62,9 @@ const createDefaultSetting = async (req, res, next) => {
 // 2. Fetch a specific setting
 const fetchSetting = async (req, res, next) => {
     try {
-        // Expecting route: /settings/:settingName
-        const settingName = req.params.settingName; 
+        const { setting } = req.body;
         
-        const foundSetting = await Setting.findOne({ setting: settingName });
+        const foundSetting = await Setting.findOne({ setting: setting });
         
         if (!foundSetting) {
             return res.status(404).json({ message: "Setting not found" });
@@ -139,7 +138,8 @@ const editSetting = async (req, res, next) => {
             startHour,
             startMinute,
             endHour,
-            endMinute
+            endMinute,
+            lastExecutedDate
         } = req.body;
 
         const existingSetting = await Setting.findOne({ setting: settingName });
@@ -154,10 +154,7 @@ const editSetting = async (req, res, next) => {
         if (startMinute !== undefined) existingSetting.startMinute = startMinute;
         if (endHour !== undefined) existingSetting.endHour = endHour;
         if (endMinute !== undefined) existingSetting.endMinute = endMinute;
-
-        // Reset execution tracker so if you change time to "now", it can run again if needed
-        // (Optional logic, depends on preference)
-        // existingSetting.lastExecutedDate = null; 
+        if (lastExecutedDate !== undefined) existingSetting.lastExecutedDate = lastExecutedDate;
 
         await existingSetting.save();
 

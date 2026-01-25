@@ -11,7 +11,6 @@ const studentSchema = new mongoose.Schema({
   program: { type: String }, //for higher education
   year: { type: String, required: true },
   academicStatus: { type: [String], enum: ["IRREGULAR", "REGULAR"], default: "REGULAR" },
-  temporaryClaimStatus: { type: [String], enum: ["CLAIMED", "ELIGIBLE"], default: "ELIGIBLE" },
   claimRecords: [{
     _id: false,
     date: { type: Date },

@@ -67,12 +67,14 @@ const handleSystemPulse = async (req, res, next) => {
                     if (!setting.isActive) {
                         console.log(`Auto-Opening Window: ${setting.setting}`);
                         setting.isActive = true;
+                        setting.lastExecutedDate = todayDateStr;
                         await setting.save();
                     }
                 } else {
                     if (setting.isActive) {
                         console.log(`Auto-Closing Window: ${setting.setting}`);
                         setting.isActive = false;
+                        setting.lastExecutedDate = todayDateStr;
                         await setting.save();
                     }
                 }
