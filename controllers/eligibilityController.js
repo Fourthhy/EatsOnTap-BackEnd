@@ -43,25 +43,18 @@ const submitDailyMealRequestList = async (req, res, next) => {
         if (!submitSetting) {
             return res.status(400).json({ message: "Setting not found" });
         }
-        if (submitSetting.settingEnable === false) {
-            return res.status(400).json({ message: "Setting is not enabled, please turn it on" });
-        }
-        if (submitSetting.settingActive === false) {
+        if (submitSetting.isActive === false) {
             return res.status(400).json({ message: "Setting is not on scheduled, please wait for it to be active" })
         }
-        //check and validate fields
         if (!requesterID) {
             return res.status(400).json({ message: "Missing required field: requesterID" })
         }
-
         if (!section) {
             return res.status(400).json({ message: "Missing required field: section" })
         }
-
         if (!Array.isArray(forEligibleStudentIDs)) {
             return res.status(400).json({ message: "Missing required field: forEligibleStudentIDs" })
         }
-
         //check if the classadviser accessing is the current section adviser (OPTIONAL but for safety)
         const adviser = await classAdviser.findOne({ userID: requesterID, section: section });
         if (!adviser) {

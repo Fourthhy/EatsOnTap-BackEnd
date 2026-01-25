@@ -28,11 +28,7 @@ const claimMeal = async (req, res, next) => {
     try {
         const { studentInput } = req.body;
 
-        // =========================================================
-        // 1. VALIDATION LAYER (Input, Settings, Student Existence)
-        // =========================================================
-
-        // A. Resolve Search Key (ID vs RFID)
+        // A. Resolve Search Key (Student ID vs RFID)
         const hyphenRegex = /-/;
         const searchKey = hyphenRegex.test(studentInput) ? 'studentID' : 'rfidTag';
 
@@ -41,10 +37,7 @@ const claimMeal = async (req, res, next) => {
         if (!claimSetting) {
             return res.status(500).json({ message: "System Error: 'STUDENT-CLAIM' setting is missing." });
         }
-        if (claimSetting.settingEnable === false) {
-            return res.status(403).json({ message: "Meal claiming is currently disabled by admin." });
-        }
-        if (claimSetting.settingActive === false) {
+        if (claimSetting.isActive === false) {
             return res.status(403).json({ message: "Meal claiming is not active at this scheduled time." });
         }
 
@@ -77,7 +70,7 @@ const claimMeal = async (req, res, next) => {
         // =========================================================
 
         // We need to find which section the student belongs to in the daily record
-        let foundStudentSectionIndex = -1;
+        let foundStudentSectionIndex = -1; //ANO TO
         let foundStudentIndex = -1;
         let eligibleStudentData = null;
 
@@ -515,6 +508,8 @@ const fakeMealClaim = async (req, res, next) => {
 
         // Return the student data
         res.status(200).json(student);
+        student.temporaryClaimStatus[0] = "CLAIMED";
+        await student.save();
 
     } catch (error) {
         next(error);

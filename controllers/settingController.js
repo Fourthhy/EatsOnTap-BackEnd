@@ -1,87 +1,52 @@
-import setting from "../models/setting.js";
-import { restartScheduler } from "../utils/scheduler.js";
+import Setting from "../models/setting.js"; 
 
+// 1. Initialize Defaults (Run this once)
 const createDefaultSetting = async (req, res, next) => {
     try {
-        // Check if any settings already exist to prevent duplicate creation
-        const existingSettings = await setting.find({});
+        const existingSettings = await Setting.find({});
         if (existingSettings.length > 0) {
-            return res.status(200).json({ message: "Default settings already initialized.", data: existingSettings });
+            return res.status(200).json({ 
+                message: "Default settings already initialized.", 
+                data: existingSettings 
+            });
         }
 
         const defaultSettings = [
             {
                 setting: 'STUDENT-CLAIM',
-                settingActive: true,
-                // Starts 10:00 AM (10) to 3:00 PM (15), every minute, every day.
-                settingEnable: true,
-                startMinute: '0',
-                endMinute: '0',
-                startHour: '10', //this indicates as 10 am
-                endHour: '15', //this indicates as 3 pm
-                startDay: '0',
-                endDay: '0',
-                startMonth: '0',
-                endMonth: '0',
-                startDayOfWeek: '0',
-                endDayOfWeek: '0'
-                //if 0 start and 0 end, it will be indicated as * , meaning all available options
-
-                //if the option is 1 or more, and is the same, it will be indicated as "one-time-execute"
+                description: 'Controls the time window for students to claim meals.',
+                isActive: false, // Default state is OFF until the schedule opens it
+                startHour: 10,   // 10:00 AM
+                startMinute: 0,
+                endHour: 15,     // 3:00 PM
+                endMinute: 0
             },
             {
                 setting: 'SUBMIT-MEAL-REQUEST',
-                settingActive: true,
-                // Starts 6:00 AM (6) to 7:30 AM. Using hour range '6-7' covers 6:00-7:59.
-                // NOTE: Application logic must manually check for the 7:30 minute boundary.
-                settingEnable: true,
-                startMinute: '0',
-                endMinute: '30',
-                startHour: '6',
-                endHour: '7',
-                startDay: '0',
-                endDay: '0',
-                startMonth: '0',
-                endMonth: '0',
-                startDayOfWeek: '0',
-                endDayOfWeek: '0'
+                description: 'Time window for submitting meal requests.',
+                isActive: false,
+                startHour: 6,    // 6:00 AM
+                startMinute: 0,
+                endHour: 7,      // 7:30 AM (handled by logic)
+                endMinute: 30
             },
             {
-                setting: 'SCHEDULE-ASSIGN-CREDITS',
-                settingActive: false, // Requirement: FALSE by default
-                // Placeholder cron values
-                settingEnable: false,
-                startMinute: '0',
-                endMinute: '0',
-                startHour: '9',
-                endHour: '9',
-                startDay: '0',
-                endDay: '0',
-                startMonth: '0',
-                endMonth: '0',
-                startDayOfWeek: '0',
-                endDayOfWeek: '0'
+                setting: 'ASSIGN-CREDITS',
+                description: 'Time trigger to assign credits to students.',
+                isActive: false, 
+                startHour: 9,    // 9:00 AM
+                startMinute: 0,
             },
             {
                 setting: 'REMOVE-CREDITS',
-                settingActive: true,
-                // Executes exactly at 3:00 PM (15), every day.
-                settingEnable: true,
-                startMinute: '0',
-                endMinute: '0',
-                startHour: '3',
-                endHour: '3',
-                startDay: '0',
-                endDay: '0',
-                startMonth: '0',
-                endMonth: '0',
-                startDayOfWeek: '0',
-                endDayOfWeek: '0'
+                description: 'Time trigger to reset daily credits.',
+                isActive: false,
+                startHour: 15, 
+                startMinute: 0,
             }
         ];
 
-        // Insert all default settings into the database
-        const newSettings = await setting.insertMany(defaultSettings);
+        const newSettings = await Setting.insertMany(defaultSettings);
 
         res.status(201).json({
             message: "Default system settings initialized successfully.",
@@ -90,103 +55,127 @@ const createDefaultSetting = async (req, res, next) => {
         });
 
     } catch (error) {
-        console.error("Error creating default settings:", error);
-        // Handle Mongoose validation errors if any
-        if (error.name === 'ValidationError') {
-            return res.status(400).json({ message: error.message });
-        }
         next(error);
-    }
-}
-
-const fetchSetting = async (req, res, next) => {
-    try {
-        const settings = await setting.findOne({ setting: req.params.SETTING_NAME });
-        if (!settings) {
-            return res.status(404).json({ message: "Setting not found" });
-        }
-        res.status(200).json({ message: settings });
-    } catch (error) {
-        next(error); // Passes error to Express error handler
     }
 };
 
-
-const enableSetting = async () => {
+// 2. Fetch a specific setting
+const fetchSetting = async (req, res, next) => {
     try {
-        const settings = await setting.find({ setting: req.params.SETTING_NAME });
-
-        settings.settingEnable = true;
-        settings.save();
-        res.status(200).json({ message: `${settings.settingName} is now Enabled`});
+        // Expecting route: /settings/:settingName
+        const settingName = req.params.settingName; 
+        
+        const foundSetting = await Setting.findOne({ setting: settingName });
+        
+        if (!foundSetting) {
+            return res.status(404).json({ message: "Setting not found" });
+        }
+        res.status(200).json(foundSetting); // Return the object directly
     } catch (error) {
-        throw new Error(error)
+        next(error);
     }
-}
+};
 
-const disableSetting = async () => {
+// 3. Fetch ALL settings (Useful for Admin Dashboard)
+const fetchAllSettings = async (req, res, next) => {
     try {
-        const settings = await setting.find({ setting: req.params.SETTING_NAME });
-
-        settings.settingEnable = false;
-        settings.save();
-        res.status(200).json({ message: `${settings.settingName} is now Disabled`});
+        const settings = await Setting.find({});
+        res.status(200).json(settings);
     } catch (error) {
-        throw new Error(error)
+        next(error);
     }
-}
+};
 
+// 4. Manually Enable a Feature (Emergency Override)
+const enableSetting = async (req, res, next) => {
+    try {
+        const settingName = req.params.settingName;
+
+        const updatedSetting = await Setting.findOneAndUpdate(
+            { setting: settingName },
+            { isActive: true },
+            { new: true }
+        );
+
+        if (!updatedSetting) return res.status(404).json({ message: "Setting not found" });
+
+        res.status(200).json({ 
+            message: `${updatedSetting.setting} is now ENABLED (Active).`, 
+            data: updatedSetting 
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// 5. Manually Disable a Feature (Emergency Override)
+const disableSetting = async (req, res, next) => {
+    try {
+        const settingName = req.params.settingName;
+
+        const updatedSetting = await Setting.findOneAndUpdate(
+            { setting: settingName },
+            { isActive: false },
+            { new: true }
+        );
+
+        if (!updatedSetting) return res.status(404).json({ message: "Setting not found" });
+
+        res.status(200).json({ 
+            message: `${updatedSetting.setting} is now DISABLED (Inactive).`, 
+            data: updatedSetting 
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// 6. Edit Schedule Times
 const editSetting = async (req, res, next) => {
     try {
         const {
-            settingName,
-            settingEnable,
-            startMinute,
-            endMinute,
+            settingName, // The ID to search for
+            description,
             startHour,
+            startMinute,
             endHour,
-            startDay,
-            endDay,
-            startMonth,
-            endMonth,
-            startDayOfWeek,
-            endDayOfWeek
+            endMinute
         } = req.body;
 
-        // Find the existing setting document
-        const existingSetting = await setting.findOne({ setting: settingName });
+        const existingSetting = await Setting.findOne({ setting: settingName });
 
         if (!existingSetting) {
-            return res.status(404).json({ message: `Setting '${setting}' not found` });
+            return res.status(404).json({ message: `Setting '${settingName}' not found` });
         }
 
-        // Update only provided values; keep current value if undefined
-        if (settingEnable !== undefined) existingSetting.settingEnable = settingEnable;
-        if (startMinute !== undefined) existingSetting.startMinute = startMinute;
-        if (endMinute !== undefined) existingSetting.endMinute = endMinute;
+        // Update fields if provided
+        if (description !== undefined) existingSetting.description = description;
         if (startHour !== undefined) existingSetting.startHour = startHour;
+        if (startMinute !== undefined) existingSetting.startMinute = startMinute;
         if (endHour !== undefined) existingSetting.endHour = endHour;
-        if (startDay !== undefined) existingSetting.startDay = startDay;
-        if (endDay !== undefined) existingSetting.endDay = endDay;
-        if (startMonth !== undefined) existingSetting.startMonth = startMonth;
-        if (endMonth !== undefined) existingSetting.endMonth = endMonth;
-        if (startDayOfWeek !== undefined) existingSetting.startDayOfWeek = startDayOfWeek;
-        if (endDayOfWeek !== undefined) existingSetting.endDayOfWeek = endDayOfWeek;
+        if (endMinute !== undefined) existingSetting.endMinute = endMinute;
+
+        // Reset execution tracker so if you change time to "now", it can run again if needed
+        // (Optional logic, depends on preference)
+        // existingSetting.lastExecutedDate = null; 
 
         await existingSetting.save();
 
-        res.status(200).json({ message: `Setting '${setting}' updated successfully`, setting: existingSetting });
-        await restartScheduler();
+        res.status(200).json({ 
+            message: `Setting '${settingName}' updated successfully`, 
+            data: existingSetting 
+        });
 
     } catch (error) {
-        next(error); // Use next to pass error to Express error handler
+        next(error);
     }
 };
 
 export {
     createDefaultSetting,
     fetchSetting,
+    fetchAllSettings, // Added this extra utility
     enableSetting,
     disableSetting,
     editSetting
-}
+};

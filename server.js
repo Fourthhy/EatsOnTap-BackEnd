@@ -3,7 +3,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const app = require('./app');
-const scheduler = require('./utils/scheduler'); // Note: No .js needed in require
 
 const PORT = process.env.PORT || 3000;
 
@@ -13,9 +12,6 @@ const startServer = async () => {
     // 🟢 2. CONNECT TO DB
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ MongoDB Connected');
-    
-    // 🟢 3. START SCHEDULER (Now safe!)
-    scheduler.startScheduler(); 
 
     // 🟢 4. START SERVER
     const server = http.createServer(app);
@@ -23,7 +19,7 @@ const startServer = async () => {
         cors: {
             origin: [
                 'http://localhost:5173',
-                'https://eats-on-tap-front-end.vercel.app'
+                'https://eats-on-tap-front-end.vercel.app' 
             ],
             methods: ["GET", "POST"]
         }
