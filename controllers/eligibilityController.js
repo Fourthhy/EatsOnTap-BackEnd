@@ -3,6 +3,7 @@ import classAdviser from '../models/classAdviser.js';
 import eligibilityBasicEd from '../models/eligibilityBasicEd.js'
 import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
 import student from '../models/student.js'
+import mealValue from '../models/mealValue.js';
 import Setting from '../models/setting.js'
 
 
@@ -255,9 +256,40 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
     }
 }
 
-const fetchScheduledRequestsByDayOfWeek = async (dayOfWeek) => {
+const claimStatusReset = async (req, res, next) => {
+    try {
+        // 1. Get the current Global Meal Value
+        // We assume there is only one document in this collection
+        const globalValue = await mealValue.findOne({});
 
-}
+        if (!globalValue) {
+            return res.status(500).json({ message: "Error: No Meal Value configured in system." });
+        }
+
+        const valueToAssign = globalValue.mealValue;
+
+        // 2. Update ALL students:
+        // - Set status to ELIGIBLE
+        // - Set their balance to the fetched mealValue
+        const result = await student.updateMany(
+            {},
+            {
+                $set: {
+                    temporaryClaimStatus: "ELIGIBLE",
+                    temporaryCreditBalance: valueToAssign // 👈 Copied from other model
+                }
+            }
+        );
+
+        res.status(200).json({
+            message: `Reset complete. All students set to ELIGIBLE with ${valueToAssign} credits.`,
+            modifiedCount: result.modifiedCount
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
 
 //when admin approved the request, create a function that will scan the status of an meal eligibiltity request (scheduled and note scheduled). if APPROVED, create a function that will "mass eligible" and "mass waive" the students from the eligibility list.
 
@@ -274,5 +306,6 @@ export {
     submitDailyMealRequestList,
     submitScheduledMealRequestList,
     fetchDailyRequestsBySection,
-    getStudentIDsBySection
+    getStudentIDsBySection,
+    claimStatusReset
 }

@@ -15,4 +15,6 @@ router.get('/fetchRequestsBySection/:section', eligibilityController.fetchDailyR
 //Route for submitting scheduled meal request list for higher ed
 router.post('/submitListforHigherEduc', userAuthentication.authSecurity, userAuthentication.adminAssistantAuth, eligibilityController.submitScheduledMealRequestList);
 
+router.put('/claimStatusReset', eligibilityController.claimStatusReset);
+
 module.exports = router;

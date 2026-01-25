@@ -1,6 +1,7 @@
 import Setting from "../models/setting.js";
 import { assignCredits, removeCredits, assignCreditsForEvents } from "../controllers/claimController.js";
 import { initializeTodayRecord, finalizeTodayRecord } from '../controllers/reportController.js';
+import { claimStatusReset } from "../controllers/eligibilityController.js";
 
 const getTodayDate = () => {
     return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); // Returns "2024-03-25"
@@ -17,6 +18,9 @@ const executeTaskLogic = async (settingName) => {
         case 'ASSIGN-CREDITS':
             await initializeTodayRecord();
             console.log("Executed initialize today record");
+
+            await claimStatusReset();
+            console.log("Executed claim status reset");
             
             const dayToday = getTodayDayName();
             await assignCredits(dayToday); 
