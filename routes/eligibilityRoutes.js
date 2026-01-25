@@ -6,7 +6,7 @@ const userAuthentication = require('../middlewares/userAuthentication');
 
 /* ==== CLASS ADVISER ==== */
 //Route for submitting meal request list for basic ed
-router.post('/submitListforBasicEduc', userAuthentication.authSecurity, userAuthentication.classAdviserAuth, eligibilityController.submitDailyMealRequestList);
+router.post('/submitListforBasicEduc', eligibilityController.submitDailyMealRequestList);
 
 //Route for fetching meal request list by section
 router.get('/fetchRequestsBySection/:section', eligibilityController.fetchDailyRequestsBySection);
