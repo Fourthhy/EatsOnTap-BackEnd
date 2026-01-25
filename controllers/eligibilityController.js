@@ -55,7 +55,6 @@ const submitDailyMealRequestList = async (req, res, next) => {
         if (!Array.isArray(forEligibleStudentIDs)) {
             return res.status(400).json({ message: "Missing required field: forEligibleStudentIDs" })
         }
-        //check if the classadviser accessing is the current section adviser (OPTIONAL but for safety)
         const adviser = await classAdviser.findOne({ userID: requesterID, section: section });
         if (!adviser) {
             return res.status(404).json({ message: `Authorization failed. Class adviser is not for ${section} section` })
