@@ -6,7 +6,8 @@ const eligibilityBasicEdSchema = new mongoose.Schema({
     timeStamp: { type: Date, default: Date.now, required: true },
     section : { type: String, required: true},
     forEligible: { type: [String], required: true},
-    forTemporarilyWaived: { type: [String], required: true }, //waived just for the current day
+    forTemporarilyWaived: { type: [String], }, //waived just for the current day
+    forAbsentStudents: { type: [String] },
     status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING'},
     creditAssigned: { type: Boolean, required: true, default: false } 
 });
