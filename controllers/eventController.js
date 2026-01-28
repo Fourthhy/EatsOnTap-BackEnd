@@ -2,15 +2,44 @@ import event from "../models/event.js";
 
 const addEvent = async (req, res, next) => {
     try {
-        const { eventName, eventScope, startDay, endDay, startMonth, endMonth, forEligibleSection, forEligibleProgramsAndYear, forTemporarilyWaived } = req.body
+        // 🟢 Added eventColor to destructuring
+        const { 
+            eventName, 
+            eventScope, 
+            startDay, 
+            endDay, 
+            startMonth, 
+            endMonth, 
+            eventColor, // <--- Receive this from Frontend
+            forEligibleSection, 
+            forEligibleProgramsAndYear, 
+            forTemporarilyWaived 
+        } = req.body;
+
         const now = new Date();
-        const thisYear = now.getFullYear()
+        const thisYear = now.getFullYear();
+        
+        // Your existing ID logic
         const eventID = `${startDay}-${endDay}-${forEligibleSection.length}-${forEligibleProgramsAndYear.length}-${forTemporarilyWaived.length}-${thisYear}`;
-        const newEvent = new event({ eventID, eventName, eventScope, startDay, endDay, startMonth, endMonth, forEligibleSection, forEligibleProgramsAndYear, forTemporarilyWaived });
+        
+        const newEvent = new event({ 
+            eventID, 
+            eventName, 
+            eventScope, 
+            startDay, 
+            endDay, 
+            startMonth, 
+            endMonth,
+            eventColor, // 🟢 Save it to DB
+            forEligibleSection, 
+            forEligibleProgramsAndYear, 
+            forTemporarilyWaived 
+        });
+
         await newEvent.save();
         res.status(200).json({ message: `${eventName} event created successfully!` });
     } catch (error) {
-        next(error)
+        next(error);
     }
 }
 

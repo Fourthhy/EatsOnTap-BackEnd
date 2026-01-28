@@ -515,7 +515,67 @@ const fakeMealClaim = async (req, res, next) => {
     }
 };
 
+const fakeFoodItemClaim = async (req, res, next) => {
+    try {
+        // Expecting JSON body: { "studentInput": "25-00025", "amount": 50 }
+        const { studentInput, amount } = req.body;
 
+        // 1. Validation
+        if (!studentInput) {
+            return res.status(400).json({ message: "Please provide a Student ID or RFID Tag." });
+        }
+        if (!amount || isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ message: "Please provide a valid positive amount to deduct." });
+        }
+
+        // 2. Find the student (by ID or RFID)
+        const student = await Student.findOne({
+            $or: [
+                { studentID: studentInput },
+                { rfidTag: studentInput }
+            ]
+        });
+
+        if (!student) {
+            return res.status(404).json({ message: "Student not found." });
+        }
+
+        // 3. Check for Sufficient Balance
+        if (student.temporaryCreditBalance < amount) {
+            return res.status(400).json({
+                message: "Transaction Failed: Insufficient Balance",
+                currentBalance: student.temporaryCreditBalance,
+                attemptedAmount: amount
+            });
+        }
+
+        // 4. Deduct Balance
+        student.temporaryCreditBalance -= amount;
+
+        // 5. Update Status (Optional but recommended logic)
+        // If balance hits 0, you might want to mark them as NO-BALANCE
+        if (student.temporaryCreditBalance === 0) {
+            // Check if "NO-BALANCE" is in the array, if not, add/set it
+            if (!student.temporaryClaimStatus.includes("NO-BALANCE")) {
+                student.temporaryClaimStatus = ["NO-BALANCE"];
+            }
+        }
+
+        // 6. Save & Respond
+        await student.save();
+
+        res.status(200).json({
+            message: "Item Claimed Successfully",
+            studentID: student.studentID,
+            deductedAmount: amount,
+            remainingBalance: student.temporaryCreditBalance,
+            status: student.temporaryClaimStatus
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
 
 /* New function to deduct remaining credits 
 This function is created and aligned to "Prevent Carry-over unused credit balance and auto reset of credits"
@@ -528,5 +588,6 @@ export {
     removeCredits,
     assignCredits,
     assignCreditsForEvents,
-    fakeMealClaim
+    fakeMealClaim,
+    fakeFoodItemClaim
 } 

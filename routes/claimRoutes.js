@@ -20,4 +20,6 @@ router.put('/:studentID/remove-credits', claimController.removeCredits);
 
 router.get('/fakeMealClaim', claimController.fakeMealClaim)
 
+router.put('fakeFoodItemClaim', claimController.fakeFoodItemClaim);
+
 module.exports = router;
