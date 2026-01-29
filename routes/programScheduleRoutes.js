@@ -5,6 +5,7 @@ const programScheduleController = require("../controllers/programScheduleControl
 
 router.post('/addProgramSchedule', programScheduleController.addProgramSchedule);
 router.get('/viewProgramSchedule', programScheduleController.viewProgramSchedule);
-router.get('/viewAllProgramSchedule', programScheduleController.viewAllProgramSchedule);
+router.get('/fetchAllProgramSchedule', programScheduleController.viewAllProgramSchedule);
+router.put('/editProgramSchedule', programScheduleController.editProgramSchedule);
 
 module.exports = router;

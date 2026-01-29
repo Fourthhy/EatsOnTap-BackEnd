@@ -6,7 +6,7 @@ const sectionprogramSchema = new mongoose.Schema({
     section: {type: String },
     program: {type: String},
     handleAdviser: {type: String},
-    studentCount: {type: Number}
+    studentCount: {type: Number, default: 0}
 })
 
 module.exports = mongoose.model('SectionProgram', sectionprogramSchema);

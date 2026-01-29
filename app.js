@@ -78,9 +78,9 @@ app.use('/api/logger', loggerRoutes);
 app.use('/api/setting', settingRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/programSchedule', programScheduleRoutes);
 app.use('/api/scheduler', schedulerRoutes);
 
+app.use('/api/programSchedule', programScheduleRoutes);
 app.use('/api/sectionprogram', sectionprogramRoutes);
 
 //for development purposes

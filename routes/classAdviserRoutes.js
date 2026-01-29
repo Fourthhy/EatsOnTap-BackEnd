@@ -14,4 +14,6 @@ router.get('/:userID/getClassAdviser', classAdviserController.getClassAdviserByI
 //get all class advisers from the list
 router.get('/getAllClassAdviser', classAdviserController.getAllClassAdvisers);
 
+router.post('/addClassAdviser', classAdviserController.addClassAdviser);
+
 module.exports = router;

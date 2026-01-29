@@ -414,16 +414,21 @@ const getStudentClaimReports = async (req, res) => {
   }
 };
 
-const getSectionProgramList = async (req, res, next) => {
+const getAllSectionProgramList = async (req, res, next) => {
   try {
-    // 1. Fetch all records
-    // We use .lean() for faster performance since we just need to read the data
-    const sectionPrograms = await SectionProgram.find({})
-      .sort({ department: 1, year: 1, section: 1, program: 1 }); // Optional: Sorts A-Z
+    // Fetch all documents from the collection
+    // .lean() is optional but recommended for faster read-only operations
+    const allSections = await SectionProgram.find({}).lean().sort({ department: 1, year: 1, section: 1, program: 1 }); // Optional: Sorts A-Z
 
-    // 2. Send Response
-    // If no data exists, this simply returns [] (an empty array), which is a valid 200 OK response.
-    res.status(200).json(sectionPrograms);
+    if (!allSections || allSections.length === 0) {
+      return res.status(200).json({ message: "No section programs found." });
+    }
+
+    res.status(200).json({
+      message: "Successfully fetched all section programs",
+      count: allSections.length,
+      data: allSections
+    });
 
   } catch (error) {
     next(error);
@@ -460,6 +465,128 @@ const getClassAdvisers = async (req, res, next) => {
   }
 };
 
+const getStudentsWithProgramOnly = async (req, res, next) => {
+  try {
+    // Logic:
+    // 1. Program must exist and not be empty/null
+    // 2. Section must be either missing, null, or an empty string
+    const students = await Student.find({
+      program: { $exists: true, $ne: null, $ne: "" },
+      $or: [
+        { section: { $exists: false } },
+        { section: null },
+        { section: "" }
+      ]
+    });
+
+    if (students.length === 0) {
+      return res.status(404).json({ message: "No students found with only a Program defined." });
+    }
+
+    res.status(200).json({
+      message: "Successfully fetched Higher Education students",
+      count: students.length,
+      data: students
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getSchoolStructure = async (req, res, next) => {
+    try {
+        // 1. Fetch only necessary fields (Optimization)
+        // We only need year, section, and program to determine the structure.
+        const students = await Student.find({}, 'year section program').lean();
+
+        // 2. Initialize Buckets (Keys match your Frontend IDs)
+        const departmentsMap = {
+            "preschool": {},
+            "primaryEducation": {},
+            "intermediate": {},
+            "juniorHighSchool": {},
+            "seniorHighSchool": {},
+            "higherEducation": {}
+        };
+
+        const parseYear = (yearStr) => parseInt(yearStr, 10);
+
+        // 3. Bucket Sort (Populate the structure)
+        students.forEach(student => {
+            let deptKey = "";
+            const yearVal = parseYear(student.year);
+
+            // A. Determine Department ID
+            if (student.program) {
+                deptKey = "higherEducation";
+            } else if (student.section) {
+                // Logic for Basic Education based on Year Level
+                if (isNaN(yearVal) || yearVal === 0) deptKey = "preschool";
+                else if (yearVal >= 1 && yearVal <= 3) deptKey = "primaryEducation";
+                else if (yearVal >= 4 && yearVal <= 6) deptKey = "intermediate";
+                else if (yearVal >= 7 && yearVal <= 10) deptKey = "juniorHighSchool";
+                else if (yearVal >= 11 && yearVal <= 12) deptKey = "seniorHighSchool";
+                else deptKey = "preschool"; // Fallback
+            } else {
+                return; // Skip invalid records (no section AND no program)
+            }
+
+            // B. Initialize Year Level Bucket
+            // Note: We use the raw 'student.year' string for the key to preserve format
+            if (!departmentsMap[deptKey][student.year]) {
+                departmentsMap[deptKey][student.year] = new Set(); // Use Set to avoid duplicates
+            }
+
+            // C. Determine Section/Course Name
+            // If Higher Ed, use 'program' (e.g., BSIT). If Basic Ed, use 'section' (e.g., Rizal).
+            const entryName = deptKey === "higherEducation" ? student.program : student.section;
+
+            // D. Add to Set (Unique names only)
+            if (entryName) {
+                departmentsMap[deptKey][student.year].add(entryName);
+            }
+        });
+
+        // 4. Transform to Final Array Structure
+        const responseData = Object.keys(departmentsMap).map(deptKey => {
+            const yearsObj = departmentsMap[deptKey];
+
+            // Map Years
+            const levels = Object.keys(yearsObj).map(yearKey => {
+                // Convert Set back to Array and Sort alphabetically
+                const sectionsList = Array.from(yearsObj[yearKey]).sort();
+
+                return {
+                    levelName: yearKey,
+                    sections: sectionsList // Simple array of strings: ["Faith", "Hope", "Love"]
+                };
+            });
+
+            // Sort Levels Numerically (1, 2, 3...)
+            levels.sort((a, b) => {
+                const valA = parseYear(a.levelName) || -1;
+                const valB = parseYear(b.levelName) || -1;
+                return valA - valB;
+            });
+
+            return {
+                category: deptKey, // e.g., "primaryEducation"
+                levels: levels     // Array of years containing sections
+            };
+        });
+
+        // 5. Filter out empty departments (Optional, keeps response clean)
+        const cleanResponse = responseData.filter(dept => dept.levels.length > 0);
+
+        return res.status(200).json(cleanResponse);
+
+    } catch (error) {
+        console.error("Structure Fetch Error:", error);
+        next(error);
+    }
+};
+
 export {
   getUnifiedSchoolData,
   getAllClassAdvisers,
@@ -468,6 +595,8 @@ export {
   getAllEvents,
   getTodayClaimRecord,
   getStudentClaimReports,
-  getSectionProgramList,
-  getClassAdvisers
+  getAllSectionProgramList,
+  getClassAdvisers,
+  getStudentsWithProgramOnly,
+  getSchoolStructure
 }

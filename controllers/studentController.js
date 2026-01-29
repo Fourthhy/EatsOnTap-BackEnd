@@ -11,15 +11,15 @@ import { logWaiveStatus, logEligibilityStatus } from "./loggerController.js";
 const createStudent = async (req, res, next) => {
   try {
     // 1. Destructure all fields
-    const { 
-      studentID, 
-      first_name, 
-      middle_name, 
-      last_name, 
-      section, 
-      program, 
-      year, 
-      academicStatus 
+    const {
+      studentID,
+      first_name,
+      middle_name,
+      last_name,
+      section,
+      program,
+      year,
+      academicStatus
     } = req.body;
 
     // 2. Validate Required Fields
@@ -44,11 +44,11 @@ const createStudent = async (req, res, next) => {
       first_name: first_name.trim(),
       middle_name: middle_name ? middle_name.trim() : "",
       last_name: last_name.trim(),
-      section: section ? section.trim() : null, 
-      program: program ? program.trim() : null, 
+      section: section ? section.trim() : null,
+      program: program ? program.trim() : null,
       year,
-      academicStatus: academicStatus || undefined, 
-      claimRecords: [] 
+      academicStatus: academicStatus || undefined,
+      claimRecords: []
     });
 
     await newStudent.save();
@@ -57,17 +57,17 @@ const createStudent = async (req, res, next) => {
     // We search for the Section/Program document that matches this student's details
     // and increase the count by 1.
     const updateQuery = { year: year };
-    
+
     // Add the specific filter (Section takes priority if both exist, or handle logic as needed)
     if (section) {
-        updateQuery.section = section.trim();
+      updateQuery.section = section.trim();
     } else if (program) {
-        updateQuery.program = program.trim();
+      updateQuery.program = program.trim();
     }
 
     await SectionProgram.findOneAndUpdate(
-        updateQuery,
-        { $inc: { studentCount: 1 } } // $inc creates the field if it doesn't exist
+      updateQuery,
+      { $inc: { studentCount: 1 } } // $inc creates the field if it doesn't exist
     );
 
     // 7. Socket.io Broadcast
@@ -86,10 +86,10 @@ const createStudent = async (req, res, next) => {
 
   } catch (error) {
     if (error.name === 'ValidationError') {
-        const messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ message: "Validation Error", errors: messages });
+      const messages = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({ message: "Validation Error", errors: messages });
     }
-    next(error); 
+    next(error);
   }
 };
 
@@ -265,6 +265,94 @@ const studentRFIDLinking = async (req, res, next) => {
   }
 }
 
+const fetchProgramCodes = async (req, res, next) => {
+  try {
+    // 🟢 STAGE 1: Aggregate (Get all unique pairs from DB)
+    const uniquePairs = await Student.aggregate([
+      {
+        $match: {
+          program: { $exists: true } // Basic check only
+        }
+      },
+      {
+        $group: {
+          _id: {
+            program: "$program",
+            year: "$year"
+          }
+        }
+      },
+      {
+        $sort: { "_id.program": 1, "_id.year": 1 }
+      }
+    ]);
+
+    // 🟢 STAGE 2: Filter the Output (Remove "null" strings here)
+    const formattedList = uniquePairs
+      // Filter: Exclude if program is literally the string "null"
+      .filter(item => item._id.program !== "null" && item._id.program !== null)
+      // Map: Format to string
+      .map(item => `${item._id.program} - ${item._id.year}`);
+
+    res.status(200).json({
+      message: "Unique Program-Year pairs fetched",
+      count: formattedList.length,
+      data: formattedList
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+const fetchStudentsByProgramCodes = async (req, res, next) => {
+  try {
+    // Expecting body: { "programCodes": ["BSIT - 1", "ACT - 2"] }
+    const { programCodes } = req.body;
+
+    // 1. Validation
+    if (!programCodes || !Array.isArray(programCodes) || programCodes.length === 0) {
+      return res.status(400).json({ message: "Please provide a valid array of program codes." });
+    }
+
+    // 2. Parse the Codes into Query Objects
+    // "BSIT - 1"  -->  { program: "BSIT", year: "1" }
+    const queryCriteria = programCodes.map(code => {
+      const parts = code.split(' - ');
+
+      // Safety check for malformed strings
+      if (parts.length < 2) return null;
+
+      return {
+        program: parts[0].trim(),
+        year: parts[1].trim()
+      };
+    }).filter(item => item !== null); // Remove invalid entries
+
+    if (queryCriteria.length === 0) {
+      return res.status(400).json({ message: "No valid program codes could be parsed." });
+    }
+
+    console.log("🔍 Searching for criteria:", queryCriteria);
+
+    // 3. Fetch All Matches in ONE Query
+    // The $or operator works like: Match (Criteria 1) OR (Criteria 2) OR ...
+    const students = await Student.find({
+      $or: queryCriteria
+    });
+
+    // 4. Respond
+    res.status(200).json({
+      message: "Students fetched successfully",
+      count: students.length,
+      data: students
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export {
   createStudent,
@@ -274,5 +362,7 @@ export {
   waiveStudent,
   eligibleStudent,
   getStudentBySection,
-  studentRFIDLinking
+  studentRFIDLinking,
+  fetchProgramCodes,
+  fetchStudentsByProgramCodes
 }

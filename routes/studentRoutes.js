@@ -7,6 +7,10 @@ const userAuthentication = require('../middlewares/userAuthentication');
 // import upload  from '../middlewares/multer.js'
 const upload = require('../middlewares/multer.js').default;
 
+router.get('/fetchProgramCodes', studentController.fetchProgramCodes)
+
+router.get('/fetchStudentsByProgramCodes', studentController.fetchStudentsByProgramCodes)
+
 //Route for adding a new student
 router.post('/addNewStudent', studentController.createStudent);
 
@@ -32,6 +36,8 @@ router.put('/rfidLink/:studentID', studentController.studentRFIDLinking);
 
 //Route for fetch students using course for class adivser eligiblity
 router.get('/getSection/:sectionName', userAuthentication.authSecurity, userAuthentication.checkRole('CLASS-ADVISER'), studentController.getStudentBySection);
+
+
 
 
 module.exports = router;
