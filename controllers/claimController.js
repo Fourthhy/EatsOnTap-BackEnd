@@ -2,11 +2,13 @@
 import { logClaimAttempt } from "./loggerController.js";
 import Student from "../models/student.js";
 import Setting from "../models/setting.js";
-import Credit from "../models/credit.js";
+import mealValue from "../models/mealValue.js"
 import event from "../models/event.js";
 import eligibilityBasicEd from "../models/eligibilityBasicEd.js";
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 import ClaimRecord from "../models/claimRecord.js";
+
+import { logAction } from "./systemLoggerController.js"
 
 // 🟢 HELPER: Get PH Date Range (To ensure we hit the right daily record)
 const getPHDateRange = () => {
@@ -32,15 +34,6 @@ const claimMeal = async (req, res, next) => {
         const hyphenRegex = /-/;
         const searchKey = hyphenRegex.test(studentInput) ? 'studentID' : 'rfidTag';
 
-        // B. Check Setting Permission
-        const claimSetting = await Setting.findOne({ setting: 'STUDENT-CLAIM' });
-        if (!claimSetting) {
-            return res.status(500).json({ message: "System Error: 'STUDENT-CLAIM' setting is missing." });
-        }
-        if (claimSetting.isActive === false) {
-            return res.status(403).json({ message: "Meal claiming is not active at this scheduled time." });
-        }
-
         // C. Find the Student (Base Model)
         const student = await Student.findOne({ [searchKey]: studentInput });
         if (!student) {
@@ -52,8 +45,8 @@ const claimMeal = async (req, res, next) => {
         // =========================================================
 
         // A. Get the Cost of a Meal (Dynamic, not hardcoded)
-        const creditModel = await Credit.findOne();
-        const MEAL_COST = creditModel ? creditModel.creditValue : 60; // Fallback to 60 if DB is empty, but uses DB value primarily
+        const creditModel = await mealValue.findOne();
+        const MEAL_COST = creditModel.mealValue;
 
         // B. Get Today's Claim Record
         const { start, end } = getPHDateRange();
@@ -485,16 +478,21 @@ const assignCreditsForEvents = async () => {
         }
     }
 };
+// =========================================================
+// 🟢 FAKE MEAL CLAIM (With Logger)
+// =========================================================
+// =========================================================
+// 🟢 FAKE MEAL CLAIM (With Logger)
+// =========================================================
 const fakeMealClaim = async (req, res, next) => {
     try {
-        // 🟢 CHANGE: Use req.query for GET requests
-        const { studentInput } = req.query;
+        const { studentInput } = req.query; // Using query for GET
 
         if (!studentInput) {
             return res.status(400).json({ message: "Please provide a Student ID or RFID Tag." });
         }
 
-        // Search for a student matching EITHER the studentID OR the rfidTag
+        // 1. Find Student
         const student = await Student.findOne({
             $or: [
                 { studentID: studentInput },
@@ -505,20 +503,43 @@ const fakeMealClaim = async (req, res, next) => {
         if (!student) {
             return res.status(404).json({ message: "Student not found." });
         }
-        // Return the student data
-        res.status(200).json(student);
+
+        // 2. Update Student Status
         student.temporaryClaimStatus[0] = "CLAIMED";
         await student.save();
+
+        // 🟢 3. SYSTEM LOG: Fake Meal Claim
+        // We log it as 'CLAIM_MEAL' so it shows up in history
+        await logAction(
+            {
+                id: student._id,
+                type: 'Student',
+                name: `${student.first_name} ${student.last_name}`,
+                role: 'BENEFICIARY'
+            },
+            'CLAIM_MEAL',
+            'SUCCESS',
+            {
+                mealType: 'LUNCH', // Or 'FAKE-MEAL' if you want to distinguish
+                description: 'Claimed meal (Simulation)'
+            }
+        );
+
+        // 4. Response
+        res.status(200).json(student);
 
     } catch (error) {
         next(error);
     }
 };
 
+// =========================================================
+// 🟢 FAKE FOOD ITEM CLAIM (With Logger)
+// =========================================================
 const fakeFoodItemClaim = async (req, res, next) => {
     try {
-        // Expecting JSON body: { "studentInput": "25-00025", "amount": 50 }
-        const { studentInput, amount } = req.body;
+        // Expecting JSON body: { "studentInput": "25-00025", "amount": 50, "items": ["Rice"] }
+        const { studentInput, amount, items } = req.body;
 
         // 1. Validation
         if (!studentInput) {
@@ -528,7 +549,7 @@ const fakeFoodItemClaim = async (req, res, next) => {
             return res.status(400).json({ message: "Please provide a valid positive amount to deduct." });
         }
 
-        // 2. Find the student (by ID or RFID)
+        // 2. Find Student
         const student = await Student.findOne({
             $or: [
                 { studentID: studentInput },
@@ -540,8 +561,17 @@ const fakeFoodItemClaim = async (req, res, next) => {
             return res.status(404).json({ message: "Student not found." });
         }
 
-        // 3. Check for Sufficient Balance
+        // 3. Check Balance
         if (student.temporaryCreditBalance < amount) {
+
+            // 🟢 LOG FAILURE
+            await logAction(
+                { id: student._id, type: 'Student', name: student.first_name, role: 'BENEFICIARY' },
+                'CLAIM_ITEM',
+                'FAILED',
+                { description: `Insufficient balance for item claim. Attempted: ${amount}` }
+            );
+
             return res.status(400).json({
                 message: "Transaction Failed: Insufficient Balance",
                 currentBalance: student.temporaryCreditBalance,
@@ -552,18 +582,32 @@ const fakeFoodItemClaim = async (req, res, next) => {
         // 4. Deduct Balance
         student.temporaryCreditBalance -= amount;
 
-        // 5. Update Status (Optional but recommended logic)
-        // If balance hits 0, you might want to mark them as NO-BALANCE
+        // 5. Update Status
         if (student.temporaryCreditBalance === 0) {
-            // Check if "NO-BALANCE" is in the array, if not, add/set it
             if (!student.temporaryClaimStatus.includes("NO-BALANCE")) {
                 student.temporaryClaimStatus = ["NO-BALANCE"];
             }
         }
 
-        // 6. Save & Respond
         await student.save();
 
+        // 🟢 6. SYSTEM LOG: Success
+        await logAction(
+            {
+                id: student._id,
+                type: 'Student',
+                name: `${student.first_name} ${student.last_name}`,
+                role: 'BENEFICIARY'
+            },
+            'CLAIM_ITEM',
+            'SUCCESS',
+            {
+                items: items || ['Ala Carte Item'], // Capture specific items if sent from frontend
+                description: `Purchased items worth ${amount} (Simulation)`
+            }
+        );
+
+        // 7. Response
         res.status(200).json({
             message: "Item Claimed Successfully",
             studentID: student.studentID,

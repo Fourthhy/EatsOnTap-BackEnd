@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import csv from 'csv-parser';
 import stream from 'stream';
 
+import { logAction } from "./systemLoggerController.js";
+
 const createClassAdvisersFromCSV = async (req, res, next) => {
     // Check for file existence
     if (!req.file) {
@@ -158,7 +160,6 @@ const addClassAdviser = async (req, res, next) => {
         const generatedPassword = `EatsOnTapClassAdviser${nextIndex}`;
 
         // 4. Check for Duplicates (UserID or Email)
-        // We check generatedEmail here to ensure we don't crash on the unique index
         const existingAdviser = await ClassAdviser.findOne({ 
             $or: [{ userID: userID }, { email: generatedEmail }] 
         });
@@ -181,12 +182,35 @@ const addClassAdviser = async (req, res, next) => {
             middle_name,
             last_name,
             section: section || undefined,
-            email: generatedEmail,      // 🟢 Uses generated email
-            password: hashedPassword,   // 🟢 Uses generated password
-            role: role || 'CLASS-ADVISER'
+            email: generatedEmail,
+            password: hashedPassword,
+            role: role || 'CLASS-ADVISER',
+            isActive: false, 
+            // 🟢 UPDATE: Force them to change this auto-generated password
+            isRequiredChangePassword: true 
         });
 
         await newAdviser.save();
+
+        // 🟢 7. SYSTEM LOG: Create Adviser
+        // We log who created this account (likely an Admin)
+        const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
+        const actorName = req.user ? req.user.email : 'System Admin';
+
+        await logAction(
+            { 
+                id: actorID, 
+                type: 'User', // Admin is usually a 'User' type
+                name: actorName, 
+                role: 'ADMIN' 
+            },
+            'SUCCESS', // Or specific action 'CREATE_ADVISER'
+            'SUCCESS',
+            { 
+                description: `Created Class Adviser account: ${userID} (${section || 'No Section'})`,
+                generatedEmail: generatedEmail
+            }
+        );
 
         res.status(201).json({ 
             message: "Class Adviser account created successfully.", 
@@ -194,7 +218,8 @@ const addClassAdviser = async (req, res, next) => {
                 userID: newAdviser.userID,
                 name: `${newAdviser.first_name} ${newAdviser.last_name}`,
                 email: newAdviser.email,
-                // Optional: Return the unhashed password once so the admin can see it (Security risk, but often needed for initial setup)
+                section: newAdviser.section,
+                // Return initial password so Admin can share it with the Adviser
                 initialPassword: generatedPassword 
             }
         });
@@ -213,5 +238,4 @@ export {
     getClassAdviserByID,
     getAllClassAdvisers,
     addClassAdviser
-
 }

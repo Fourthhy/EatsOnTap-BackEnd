@@ -7,7 +7,9 @@ const userSchema = new mongoose.Schema({
     last_name: { type: String },
     role: { type: String, enum: ['CLASS-ADVISER', 'ADMIN-ASSISTANT','ADMIN', 'FOOD-SERVER', 'CANTEEN-STAFF', 'SUPER-ADMIN', 'CHANCELLOR'], required: true},
     email: { type: String, required: true, unique: true, match: [/^[\w-\.]+@laverdad\.edu\.ph$/, 'Email must be a valid @laverdad.edu.ph address']},
-    password: { type: String, required: true }
+    password: { type: String, required: true },
+    isActive: { type: Boolean, default: false },
+    isRequiredChangePassowrd: { type: Boolean, default: false }
 })
 
 module.exports = mongoose.model('Users', userSchema);       

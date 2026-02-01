@@ -6,8 +6,9 @@ import csv from 'csv-parser';
 import stream from 'stream';
 
 //fetch all users 
+import { logAction } from "./systemLoggerController.js"
 
-const getUsers = async (req, res, next) => {
+const getAllUsers = async (req, res, next) => {
     try {
         const users = await User.find({});
         res.json(users);
@@ -17,39 +18,65 @@ const getUsers = async (req, res, next) => {
 }
 
 //Add a new user
-const createUser = async (req, res, next) => {
+const addUser = async (req, res, next) => {
     try {
-        //Destructure parameter fields:
-        const { userID, email, password, role } = req.body;
+        // 🟢 1. Destructure ALL relevant fields from the body
+        const { userID, email, password, role, first_name, middle_name, last_name } = req.body;
 
-        //check if the user already exist
-        const existingUser = await User.findOne({ userID })
+        // 🟢 2. Enhanced Duplicate Check (Check ID AND Email)
+        const existingUser = await User.findOne({
+            $or: [{ userID }, { email }]
+        });
+
         if (existingUser) {
-            return res.status(409).json({ message: "User Already Exist" });
+            const field = existingUser.userID === userID ? "User ID" : "Email";
+            return res.status(409).json({ message: `${field} already exists.` });
         }
 
-        //if user doesn't exist yet, proceed to user creation
+        // 3. Hash Password
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+        // 🟢 4. Initialize User with ALL model fields
         const newUser = new User({
-            userID: userID,
-            email: email,
+            userID,
+            first_name,
+            middle_name,
+            last_name,
+            email,
             password: hashedPassword,
-            role: role
-        })
+            role,
+            isActive: false, // Default from model
+            isRequiredChangePassowrd: true // Usually true for new accounts so they change it
+        });
 
         await newUser.save();
 
-        //in response, this prevents the hashedPassword from being displayed
+        // 🟢 5. SYSTEM LOG: Record that an account was created
+        // Assuming the person performing this action is an ADMIN (req.user)
+        const creator = req.user ? { id: req.user._id, type: 'User', name: req.user.email, role: req.user.role }
+            : { id: newUser._id, type: 'User', name: 'System', role: 'ADMIN' };
+
+        await logAction(
+            creator,
+            'SUCCESS', // or create a custom action like 'CREATE_USER'
+            'SUCCESS',
+            { description: `Created new ${role} account: ${userID}` }
+        );
+
+        // 6. Response (Hide password)
         const { password: userPassword, ...userInfo } = newUser._doc;
         res.status(201).json(userInfo);
 
     } catch (error) {
+        // Handle MongoDB Duplicate Key Error (Unique constraints)
+        if (error.code === 11000) {
+            return res.status(409).json({ message: "Duplicate entry found for unique field." });
+        }
         if (error.name === 'ValidationError') {
             return res.status(400).json({ message: error.message });
         }
-        next(error)
+        next(error);
     }
 }
 
@@ -103,7 +130,7 @@ const createUsersFromCSV = async (req, res, next) => {
 
         .on('end', async () => {
             // FIX: Removed the unnecessary check for 'parseError' since Promise.all handles it
-            
+
             try {
                 // If any promise in hashingPromises rejected, this whole block jumps to the catch
                 userData = await Promise.all(hashingPromises);
@@ -112,7 +139,7 @@ const createUsersFromCSV = async (req, res, next) => {
                 console.error("CSV Processing error: " + error.message);
                 return res.status(400).json({ message: error.message }); // 400 for data issues
             }
-            
+
             if (userData.length === 0) {
                 return res.status(400).json({ message: `CSV is empty or headers are incorrect.` });
             }
@@ -123,31 +150,31 @@ const createUsersFromCSV = async (req, res, next) => {
                 const addedUsers = await User.insertMany(userData, { ordered: false });
 
                 const responseUsers = addedUsers.map(user => {
-                    const { password: userPassword, ...userInfo } = user.toObject({ getters: true }); 
+                    const { password: userPassword, ...userInfo } = user.toObject({ getters: true });
                     return userInfo;
                 });
-                
-                res.status(201).json({ 
+
+                res.status(201).json({
                     message: `Successfully created ${addedUsers.length} users.`,
                     users: responseUsers
                 });
-                
+
             } catch (error) {
                 // ... (Your existing Mongoose error handling remains here)
                 console.error("Mongoose Bulk Insert Error:", error.message);
-                
+
                 let detailMessage = "Bulk insertion failed due to data issues.";
                 if (error.code === 11000) {
                     detailMessage = "One or more users failed due to duplicate keys (e.g., userID or email already exists).";
                 }
-                
+
                 return res.status(400).json({
                     message: detailMessage,
                     details: error.message
                 });
             }
         })
-        
+
         .on('error', (error) => {
             // General stream error handling (less common)
             next({ status: 400, message: "Error processing CSV file stream." });
@@ -155,7 +182,7 @@ const createUsersFromCSV = async (req, res, next) => {
 };
 
 export {
-    getUsers,
-    createUser,
+    getAllUsers,
+    addUser,
     createUsersFromCSV
 }

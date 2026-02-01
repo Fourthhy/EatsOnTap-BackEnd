@@ -6,7 +6,7 @@ import student from '../models/student.js'
 import mealValue from '../models/mealValue.js';
 import Setting from '../models/setting.js'
 
-
+import { logAction } from "./systemLoggerController.js"
 
 const getStudentIDsBySection = async (section) => {
     if (!section) {
@@ -38,7 +38,6 @@ const getStudentIDsByProgramAndYear = async (program, year) => {
 
 const submitDailyMealRequestList = async (req, res, next) => {
     try {
-        // 🟢 UPDATE 1: Accept forAbsentStudentIDs from the request
         const { requesterID, section, forEligibleStudentIDs, forAbsentStudentIDs } = req.body;
 
         const submitSetting = await Setting.findOne({ setting: 'SUBMIT-MEAL-REQUEST' });
@@ -48,56 +47,45 @@ const submitDailyMealRequestList = async (req, res, next) => {
         if (submitSetting.isActive === false) {
             return res.status(400).json({ message: "Setting is not on schedule, please wait for it to be active" });
         }
-        
+
         // Validation
         if (!requesterID) return res.status(400).json({ message: "Missing required field: requesterID" });
         if (!section) return res.status(400).json({ message: "Missing required field: section" });
         if (!Array.isArray(forEligibleStudentIDs)) return res.status(400).json({ message: "Missing/Invalid field: forEligibleStudentIDs" });
-        
-        // 🟢 UPDATE 2: Validate forAbsentStudentIDs (Default to empty array if missing)
+
         const absentIDs = Array.isArray(forAbsentStudentIDs) ? forAbsentStudentIDs : [];
 
+        // 🟢 Fetch Adviser (Used for Auth AND Logging)
         const adviser = await classAdviser.findOne({ userID: requesterID, section: section });
         if (!adviser) {
             return res.status(404).json({ message: `Authorization failed. Class adviser is not for ${section} section` });
         }
 
-        // Extracts all student IDs by section
         const allStudentIDs = await getStudentIDsBySection(section);
 
-        // Check if the students in the section exist
-        // 🟢 FIX: Fixed typo 'lenght' and logic
         if (allStudentIDs.length === 0) {
             return res.status(404).json({ message: `No student available in ${section} section` });
         }
 
-        // Fetch the full list of students to determine default eligibility status
         const allStudents = await student.find({ studentID: { $in: allStudentIDs } });
 
-        // Identify students who are permanently waived (e.g. bring their own lunch everyday)
-        // Note: Ensure 'mealEligibilityStatus' matches your Student model field (e.g., might be 'temporaryClaimStatus' depending on your schema)
         const waivedByDefault = new Set(
             allStudents
-                .filter(student => student.mealEligibilityStatus === 'WAIVED') 
+                .filter(student => student.mealEligibilityStatus === 'WAIVED')
                 .map(student => student.studentID)
         );
 
-        // 🟢 UPDATE 3: Calculation Logic
         const eligibleSet = new Set(forEligibleStudentIDs);
         const absentSet = new Set(absentIDs);
 
-        // Logic for Temporarily Waived: 
-        // Students in the section WHO ARE NOT (Eligible OR Absent OR Permanently Waived)
         const forTemporarilyWaived = allStudentIDs.filter(studentID =>
-            !eligibleSet.has(studentID) && 
+            !eligibleSet.has(studentID) &&
             !waivedByDefault.has(studentID) &&
-            !absentSet.has(studentID) // Exclude absent students from being counted as waived
+            !absentSet.has(studentID)
         );
 
-        // Sanity Check: Ensure 'Eligible' list doesn't contain permanently waived students
         const forEligible = forEligibleStudentIDs.filter(studentID => !waivedByDefault.has(studentID));
 
-        // Generate ID
         const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
         const newEligibilityListing = new eligibilityBasicEd({
@@ -106,11 +94,28 @@ const submitDailyMealRequestList = async (req, res, next) => {
             section: section,
             forEligible: forEligible,
             forTemporarilyWaived: forTemporarilyWaived,
-            forAbsentStudents: absentIDs, // 🟢 UPDATE 4: Save the absent list
-            creditAssigned: false // Explicit default
+            forAbsentStudents: absentIDs,
+            creditAssigned: false
         });
 
         await newEligibilityListing.save();
+
+        // 🟢 SYSTEM LOG: Submit List
+        await logAction(
+            {
+                id: adviser._id, // Use the DB _id found earlier
+                type: 'ClassAdviser',
+                name: adviser.email, // Or adviser.firstname if available
+                role: 'ADVISER'
+            },
+            'SUBMIT_LIST',
+            'SUCCESS',
+            {
+                referenceID: newEligibilityListing.eligibilityID,
+                affectedCount: allStudentIDs.length, // Total students in section
+                description: `Submitted list for ${section}: ${forEligible.length} Eligible, ${absentIDs.length} Absent, ${forTemporarilyWaived.length} Waived.`
+            }
+        );
 
         // Socket emission
         const io = req.app.get('socketio');
@@ -125,7 +130,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
             totalStudents: allStudentIDs.length,
             eligibleCount: forEligible.length,
             waivedCount: forTemporarilyWaived.length,
-            absentCount: absentIDs.length, // Useful for frontend confirmation
+            absentCount: absentIDs.length,
             data: newEligibilityListing
         });
 
@@ -303,6 +308,8 @@ const claimStatusReset = async (req, res, next) => {
         next(error);
     }
 };
+
+
 
 //when admin approved the request, create a function that will scan the status of an meal eligibiltity request (scheduled and note scheduled). if APPROVED, create a function that will "mass eligible" and "mass waive" the students from the eligibility list.
 

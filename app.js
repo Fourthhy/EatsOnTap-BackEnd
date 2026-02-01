@@ -1,11 +1,11 @@
 // use npm run dev to run the backend localhost with nodemon
 
-// app.js
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser'); // 🟢 1. Import it here
 
-// ... imports remain the same ...
+// ... imports ...
 const studentRoutes = require('./routes/studentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
@@ -23,11 +23,14 @@ const sectionprogramRoutes = require('./routes/sectionprogramRoutes');
 const programScheduleRoutes = require('./routes/programScheduleRoutes');
 const schedulerRoutes = require('./routes/schedulerRoutes');
 
+const systemLoggerRoutes = require('./routes/systemLoggerRoutes')
+
+const mealValueRoutes = require('./routes/mealValueRoutes');
+
 //for development purposes
 const developerRoutes = require('./routes/developerRouter');
 
 const errorHandler = require('./middlewares/eventHandler');
-
 
 const app = express();
 
@@ -36,7 +39,7 @@ const allowedOrigins = [
   'https://eats-on-tap-front-end.vercel.app'
 ];
 
-// 1. Define CORS options separately so they can be reused
+// 1. Define CORS options
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -48,23 +51,25 @@ const corsOptions = {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Array is preferred
+  credentials: true, // This allows the cookie to pass through
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-// 2. Apply CORS middleware globally with options
+// 2. Apply CORS middleware globally FIRST
 app.use(cors(corsOptions));
 
 // 3. Handle Preflight requests specifically
-// Use '*' to match ALL routes, and pass the SAME corsOptions
 app.options(/(.*)/, cors(corsOptions));
 
-// body parser
+// 🟢 4. Cookie Parser (MIDDLEWARE ORDER IS IMPORTANT)
+// This must be BEFORE your routes so req.cookies is available in the controllers
+app.use(cookieParser());
+
+// 5. Body parser
 app.use(bodyParser.json());
 
 // Routes
-// ... routes remain the same ...
 app.use('/api/adminAssistant', adminAssistantRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -83,8 +88,13 @@ app.use('/api/scheduler', schedulerRoutes);
 app.use('/api/programSchedule', programScheduleRoutes);
 app.use('/api/sectionprogram', sectionprogramRoutes);
 
+app.use('/api/systemlogger', systemLoggerRoutes);
+
+app.use('/api/mealvalue', mealValueRoutes);
+
 //for development purposes
 app.use('/api/dev', developerRoutes);
+
 // Error Handling Middleware (must be last)
 app.use(errorHandler);
 

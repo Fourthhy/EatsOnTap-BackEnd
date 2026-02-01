@@ -58,6 +58,9 @@ const handleSystemPulse = async (req, res, next) => {
 
         const allSettings = await Setting.find({});
 
+        //insert new claim records here
+        
+
         for (const setting of allSettings) {
             
             const startTotalMinutes = (setting.startHour * 60) + setting.startMinute;

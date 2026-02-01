@@ -15,6 +15,8 @@ import mealValue from "../models/mealValue.js";
 
 import claimRecord from "../models/claimRecord.js";
 
+import { logAction } from "./systemLoggerController.js"
+
 //Approving Meal Eligibility Request and Scheduled Meal Eligibiltiy Request
 
 //Transforming Status from "PENDING" to "APPROVED"
@@ -29,7 +31,7 @@ const getStudentIDsBySection = async (section) => {
     const allStudentIDsInSection = await Student.find(
         { section: section },
         { studentID: 1, _id: 0 })
-
+        
     const allStudentIDs = allStudentIDsInSection.map(student => student.studentID);
     return allStudentIDs;
 }
@@ -62,7 +64,7 @@ const approveMealEligibilityRequest = async (req, res, next) => {
             eligibleStudents: eligibleStudentsData.map(student => ({
                 studentID: student.studentID,
                 claimType: 'ELIGIBLE',
-                creditBalance: 60, //changed to 60 but change to student.creditValue || 0 later
+                creditBalance: 60, // changed to 60 but change to student.creditValue || 0 later
                 onHandCash: 0
             })),
 
@@ -94,27 +96,47 @@ const approveMealEligibilityRequest = async (req, res, next) => {
             await dailyRecord.save();
         } else {
             // SCENARIO B: Create new
-            // FIX: Use 'startOfDay' instead of 'new Date()' to normalize the time to 00:00:00
             dailyRecord = new claimRecord({
-                claimDate: startOfDay, // <--- CHANGED THIS
+                claimDate: startOfDay,
                 claimRecords: [newSectionRecord]
             });
             await dailyRecord.save();
         }
 
-        // FIX: Ensure Socket Emit is OUTSIDE the if/else blocks
+        // 6. Finalize: Update the status of the request to APPROVED
+        eligibilityRequest.status = 'APPROVED';
+        await eligibilityRequest.save();
+
+        // 🟢 SYSTEM LOG: Admin Approved List
+        // We attempt to get the Admin ID from req.user (standard middleware)
+        // If req.user is missing, we log it as 'SYSTEM' or 'UNKNOWN_ADMIN'
+        const actorID = req.user ? (req.user._id || req.user.userID) : null;
+        const actorName = req.user ? req.user.email : "System Admin";
+
+        await logAction(
+            {
+                id: actorID || "000000000000000000000000", // Fallback ID if auth missing
+                type: 'User',
+                name: actorName,
+                role: 'ADMIN'
+            },
+            'ACCEPT_LIST',
+            'SUCCESS',
+            {
+                referenceID: eligibilityID,
+                affectedCount: eligibleStudentsData.length,
+                description: `Approved meal list for ${eligibilityRequest.section} (${eligibleStudentsData.length} students)`
+            }
+        );
+
+        // Socket Emit (Outside logic blocks)
         const io = req.app.get('socketio');
         if (io) {
-            // Send the data explicitly so frontend can debug
             io.emit('meal-request-submit', { type: 'Basic Education', message: 'Update Triggered' });
             console.log('🔔 Socket Emitted to all clients');
         } else {
             console.error('❌ Socket.io not found');
         }
-
-        // 6. Finalize: Update the status of the request to APPROVED
-        eligibilityRequest.status = 'APPROVED';
-        await eligibilityRequest.save();
 
         res.status(200).json({
             message: `Meal eligibility list ${eligibilityID} APPROVED and synced to Daily Records.`
