@@ -1,4 +1,4 @@
-import event from "../models/event.js";
+import Event from "../models/event.js";
 
 const monthMap = {
     "January": 0, "February": 1, "March": 2, "April": 3,
@@ -62,11 +62,11 @@ const addEvent = async (req, res, next) => {
 
 const fetchEvents = async (req, res, next) => {
     try {
-        const allEvents = await event.find({})
+        const allEvents = await Event.find({})
         if (!allEvents) {
             res.status(200).json({ message: "No events exist" });
         }
-        res.status(200).json({ message: allEvents });
+        res.status(200).json(allEvents);
     } catch (error) {
         next(error)
     }
