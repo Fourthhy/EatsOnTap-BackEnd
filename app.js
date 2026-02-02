@@ -22,10 +22,9 @@ const fetchRoutes = require('./routes/fetchRoutes');
 const sectionprogramRoutes = require('./routes/sectionprogramRoutes');
 const programScheduleRoutes = require('./routes/programScheduleRoutes');
 const schedulerRoutes = require('./routes/schedulerRoutes');
-
 const systemLoggerRoutes = require('./routes/systemLoggerRoutes')
-
 const mealValueRoutes = require('./routes/mealValueRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 //for development purposes
 const developerRoutes = require('./routes/developerRouter');
@@ -84,13 +83,12 @@ app.use('/api/setting', settingRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/scheduler', schedulerRoutes);
-
 app.use('/api/programSchedule', programScheduleRoutes);
 app.use('/api/sectionprogram', sectionprogramRoutes);
-
 app.use('/api/systemlogger', systemLoggerRoutes);
-
 app.use('/api/mealvalue', mealValueRoutes);
+app.use('/api/report', reportRoutes);
+
 
 //for development purposes
 app.use('/api/dev', developerRoutes);

@@ -276,36 +276,52 @@ const fetchDailyRequestsBySection = async (req, res, next) => {
 
 const claimStatusReset = async (req, res, next) => {
     try {
+        // Call the logic function
+        const result = await claimStatusResetLogic();
+
+        res.status(200).json({
+            message: `Reset complete. All students set to ELIGIBLE with ${result.value} credits.`,
+            modifiedCount: result.modifiedCount
+        });
+
+    } catch (error) {
+        next(error); // This is safe here because Express provides 'next'
+    }
+};
+
+const claimStatusResetLogic = async () => {
+    try {
+        console.log("🔄 STARTING: Resetting Claim Statuses...");
+
         // 1. Get the current Global Meal Value
-        // We assume there is only one document in this collection
         const globalValue = await mealValue.findOne({});
 
         if (!globalValue) {
-            return res.status(500).json({ message: "Error: No Meal Value configured in system." });
+            throw new Error("No Meal Value configured in system.");
         }
 
         const valueToAssign = globalValue.mealValue;
 
-        // 2. Update ALL students:
-        // - Set status to ELIGIBLE
-        // - Set their balance to the fetched mealValue
+        // 2. Update ALL students
         const result = await student.updateMany(
             {},
             {
                 $set: {
                     temporaryClaimStatus: "ELIGIBLE",
-                    temporaryCreditBalance: valueToAssign // 👈 Copied from other model
+                    temporaryCreditBalance: valueToAssign
                 }
             }
         );
 
-        res.status(200).json({
-            message: `Reset complete. All students set to ELIGIBLE with ${valueToAssign} credits.`,
-            modifiedCount: result.modifiedCount
-        });
+        console.log(`✅ Reset complete. Assigned ${valueToAssign} credits.`);
+        return { 
+            value: valueToAssign, 
+            modifiedCount: result.modifiedCount 
+        };
 
     } catch (error) {
-        next(error);
+        console.error("❌ Error in claimStatusResetLogic:", error);
+        throw error; // Re-throw so Pulse knows it failed
     }
 };
 
@@ -327,5 +343,6 @@ export {
     submitScheduledMealRequestList,
     fetchDailyRequestsBySection,
     getStudentIDsBySection,
-    claimStatusReset
+    claimStatusReset,
+    claimStatusResetLogic
 }

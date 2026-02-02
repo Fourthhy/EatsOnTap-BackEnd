@@ -7,6 +7,7 @@ import event from "../models/event.js";
 import eligibilityBasicEd from "../models/eligibilityBasicEd.js";
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 import ClaimRecord from "../models/claimRecord.js";
+import Credit from "../models/credit.js"
 
 import { logAction } from "./systemLoggerController.js"
 
@@ -17,6 +18,7 @@ const getPHDateRange = () => {
     const phDateString = now.toLocaleDateString("en-US", options);
     const [month, day, year] = phDateString.split('/').map(num => parseInt(num));
 
+    // Calculate Manila Start of Day (00:00) in UTC
     const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
     const startOfDayVal = Date.UTC(year, month - 1, day) - PH_OFFSET_MS;
 
@@ -621,9 +623,52 @@ const fakeFoodItemClaim = async (req, res, next) => {
     }
 };
 
-/* New function to deduct remaining credits 
-This function is created and aligned to "Prevent Carry-over unused credit balance and auto reset of credits"
-*/
+const getApprovedStudentsToday = async (req, res, next) => {
+    //this is where the students get filteted, if the students is decelared as waived from the list, they will be not included
+
+    try {
+        console.log("🔍 Fetching approved eligible students for today...");
+
+        // 1. Determine "Today"
+        const { start, end } = getPHDateRange();
+
+        // 2. Fetch Eligibility Requests
+        // Criteria: Created Today + Status is APPROVED
+        const approvedRequests = await eligibilityBasicEd.find({
+            status: 'APPROVED',
+            timeStamp: { $gte: start, $lte: end }
+        });
+
+        // 🛡️ Error Handling: No requests found? Return empty array (Success)
+        if (!approvedRequests || approvedRequests.length === 0) {
+            return res.status(200).json([]);
+        }
+
+        // 3. Extract Student IDs
+        // We aggregate all IDs from the 'forEligible' arrays into a single list.
+        // Using a Set ensures we don't duplicate IDs if there are overlapping requests.
+        const eligibleStudentIDs = new Set();
+
+        approvedRequests.forEach(request => {
+            if (request.forEligible && Array.isArray(request.forEligible)) {
+                request.forEligible.forEach(id => eligibleStudentIDs.add(id));
+            }
+        });
+
+        // 4. Fetch Student Models
+        // We look for students whose 'studentID' is in our list
+        const students = await Student.find({
+            studentID: { $in: Array.from(eligibleStudentIDs) }
+        });
+
+        // 5. Return the bare list
+        return res.status(200).json(students);
+
+    } catch (error) {
+        console.error("❌ Error fetching approved students:", error);
+        next(error);
+    }
+};
 
 export {
     claimMeal,
@@ -633,5 +678,8 @@ export {
     assignCredits,
     assignCreditsForEvents,
     fakeMealClaim,
-    fakeFoodItemClaim
+    fakeFoodItemClaim,
+
+    getApprovedStudentsToday
+
 } 

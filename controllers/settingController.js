@@ -1,13 +1,13 @@
-import Setting from "../models/setting.js"; 
+import Setting from "../models/setting.js";
 
 // 1. Initialize Defaults (Run this once)
 const createDefaultSetting = async (req, res, next) => {
     try {
         const existingSettings = await Setting.find({});
         if (existingSettings.length > 0) {
-            return res.status(200).json({ 
-                message: "Default settings already initialized.", 
-                data: existingSettings 
+            return res.status(200).json({
+                message: "Default settings already initialized.",
+                data: existingSettings
             });
         }
 
@@ -33,7 +33,7 @@ const createDefaultSetting = async (req, res, next) => {
             {
                 setting: 'ASSIGN-CREDITS',
                 description: 'Time trigger to assign credits to students.',
-                isActive: false, 
+                isActive: false,
                 startHour: 9,    // 9:00 AM
                 startMinute: 0,
             },
@@ -41,7 +41,7 @@ const createDefaultSetting = async (req, res, next) => {
                 setting: 'REMOVE-CREDITS',
                 description: 'Time trigger to reset daily credits.',
                 isActive: false,
-                startHour: 15, 
+                startHour: 15,
                 startMinute: 0,
             }
         ];
@@ -62,14 +62,14 @@ const createDefaultSetting = async (req, res, next) => {
 // 2. Fetch a specific setting
 const fetchSetting = async (req, res, next) => {
     try {
-        const { settingName } = req.params; 
-        
+        const { settingName } = req.params;
+
         const foundSetting = await Setting.findOne({ setting: settingName });
-        
+
         if (!foundSetting) {
             return res.status(404).json({ message: "Setting not found" });
         }
-        res.status(200).json(foundSetting); 
+        res.status(200).json(foundSetting);
     } catch (error) {
         next(error);
     }
@@ -98,9 +98,9 @@ const enableSetting = async (req, res, next) => {
 
         if (!updatedSetting) return res.status(404).json({ message: "Setting not found" });
 
-        res.status(200).json({ 
-            message: `${updatedSetting.setting} is now ENABLED (Active).`, 
-            data: updatedSetting 
+        res.status(200).json({
+            message: `${updatedSetting.setting} is now ENABLED (Active).`,
+            data: updatedSetting
         });
     } catch (error) {
         next(error);
@@ -120,9 +120,9 @@ const disableSetting = async (req, res, next) => {
 
         if (!updatedSetting) return res.status(404).json({ message: "Setting not found" });
 
-        res.status(200).json({ 
-            message: `${updatedSetting.setting} is now DISABLED (Inactive).`, 
-            data: updatedSetting 
+        res.status(200).json({
+            message: `${updatedSetting.setting} is now DISABLED (Inactive).`,
+            data: updatedSetting
         });
     } catch (error) {
         next(error);
@@ -158,9 +158,62 @@ const editSetting = async (req, res, next) => {
 
         await existingSetting.save();
 
-        res.status(200).json({ 
-            message: `Setting '${settingName}' updated successfully`, 
-            data: existingSetting 
+        res.status(200).json({
+            message: `Setting '${settingName}' updated successfully`,
+            data: existingSetting
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+const addSetting = async (req, res, next) => {
+    try {
+        const {
+            setting,
+            description,
+            isActive,
+            startHour,
+            startMinute,
+            endHour,
+            endMinute
+        } = req.body;
+
+        // 1. Validation
+        if (!setting) {
+            return res.status(400).json({ message: "Setting name (ID) is required." });
+        }
+
+        // 2. Check for Duplicates
+        // Using a case-insensitive regex check to prevent 'ASSIGN-CREDITS' and 'assign-credits' duplicates
+        const existingSetting = await Setting.findOne({
+            setting: { $regex: new RegExp(`^${setting}$`, 'i') }
+        });
+
+        if (existingSetting) {
+            return res.status(409).json({
+                message: `Setting '${setting}' already exists.`
+            });
+        }
+
+        // 3. Create New Setting
+        const newSetting = new Setting({
+            setting: setting.toUpperCase(), // Standardize naming (optional, but good for settings)
+            description,
+            isActive: isActive || false,
+            startHour: startHour || 0,
+            startMinute: startMinute || 0,
+            endHour: endHour || 0,
+            endMinute: endMinute || 0,
+            // lastExecutedDate defaults to null via Schema
+        });
+
+        await newSetting.save();
+
+        res.status(201).json({
+            message: "System setting configuration added successfully.",
+            data: newSetting
         });
 
     } catch (error) {
@@ -174,5 +227,6 @@ export {
     fetchAllSettings, // Added this extra utility
     enableSetting,
     disableSetting,
-    editSetting
+    editSetting,
+    addSetting
 };

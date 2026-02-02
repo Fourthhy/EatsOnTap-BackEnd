@@ -1,7 +1,9 @@
 import Setting from "../models/setting.js";
+
 import { assignCredits, removeCredits, assignCreditsForEvents } from "../controllers/claimController.js";
 import { initializeTodayRecord, finalizeTodayRecord } from '../controllers/reportController.js';
-import { claimStatusReset } from "../controllers/eligibilityController.js";
+import { claimStatusResetLogic } from "../controllers/eligibilityController.js";
+import { updateEventStatusesLogic } from "../controllers/eventController.js";
 
 const getTodayDate = () => {
     return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); // Returns "2024-03-25"
@@ -19,7 +21,7 @@ const executeTaskLogic = async (settingName) => {
             await initializeTodayRecord();
             console.log("Executed initialize today record");
 
-            await claimStatusReset();
+            await claimStatusResetLogic();
             console.log("Executed claim status reset");
             
             const dayToday = getTodayDayName();
@@ -34,9 +36,13 @@ const executeTaskLogic = async (settingName) => {
             await finalizeTodayRecord();
             await removeCredits();
             console.log("Executed finalize record & remove credits");
+            break;          
+        case 'UPDATE-EVENTS':
+            await updateEventStatusesLogic();
+            console.log('Daily Update of Events');
             break;
-            
     }
+        
 };
 
 const handleSystemPulse = async (req, res, next) => {
@@ -60,7 +66,6 @@ const handleSystemPulse = async (req, res, next) => {
 
         //insert new claim records here
         
-
         for (const setting of allSettings) {
             
             const startTotalMinutes = (setting.startHour * 60) + setting.startMinute;
@@ -99,6 +104,7 @@ const handleSystemPulse = async (req, res, next) => {
         res.status(200).json({ message: "Pulse Checked" });
     } catch (error) {
         next(error);
+        res.status(500).json({ message: error.message });
     }
 };
 

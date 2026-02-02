@@ -15,4 +15,6 @@ router.put('/editSetting', settingController.editSetting);
 
 router.get('/fetchAllSettings', settingController.fetchAllSettings);
 
+router.post('/addSetting', settingController.addSetting);
+
 module.exports = router;

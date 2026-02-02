@@ -10,4 +10,6 @@ const creditImport = async (req, res, next) => {
     }
 }
 
-export {creditImport}
+export {
+    creditImport
+}

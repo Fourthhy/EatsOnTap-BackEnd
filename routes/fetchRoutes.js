@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const fetchController = require('../controllers/fetchController');
+const reportController = require('../controllers/reportController');
 
 // === ADMIN FETCHERS === 
 
@@ -26,5 +27,9 @@ router.get('/getClassAdvisers', fetchController.getClassAdvisers);
 router.get('/getStudentsWithProgramOnly', fetchController.getStudentsWithProgramOnly);
 
 router.get('/getSchoolStructure', fetchController.getSchoolStructure);  
+
+router.get('/getDashboardData', reportController.getDashboardData);
+
+router.get('/getFinancialReport', reportController.getFinancialReport);
 
 module.exports = router;
