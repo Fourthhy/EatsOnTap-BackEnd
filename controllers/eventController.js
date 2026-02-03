@@ -1,4 +1,5 @@
 import Event from "../models/event.js";
+import { addNotification } from "./notificationController.js";
 
 const monthMap = {
     "January": 0, "February": 1, "March": 2, "April": 3,
@@ -6,51 +7,66 @@ const monthMap = {
     "September": 8, "October": 9, "November": 10, "December": 11
 };
 
+
+//this is what the ADMIN role uses
 const addEvent = async (req, res, next) => {
     try {
-        // 1. Destructure fields (Removed forTemporarilyWaived)
-        const {
-            eventName,
-            eventScope,
-            startDay,
-            endDay,
-            startMonth,
-            endMonth,
-            eventColor,
-            forEligibleSection,
-            forEligibleProgramsAndYear
+        const { 
+            eventName, 
+            eventScope, 
+            startDay, 
+            endDay, 
+            startMonth, 
+            endMonth, 
+            eventColor, 
+            forEligibleSection, // Expecting Array of objects: [{ section: "A", year: "1" }]
+            forEligibleProgramsAndYear // Expecting Array of objects
         } = req.body;
 
         const now = new Date();
         const thisYear = now.getFullYear();
-
-        // 2. Calculate Array Lengths safely (Default to 0 if undefined)
+        
+        // 1. Calculate Array Lengths for ID
         const sectionLen = forEligibleSection ? forEligibleSection.length : 0;
         const programLen = forEligibleProgramsAndYear ? forEligibleProgramsAndYear.length : 0;
 
-        // 3. Updated ID Logic (Removed the waived param)
-        // Format: StartDay-EndDay-SectionCount-ProgramCount-Year
+        // 2. Generate ID
         const eventID = `${startDay}-${endDay}-${sectionLen}-${programLen}-${thisYear}`;
+        
+        // 3. Prepare Data with Default Counts (0)
+        // We map through the incoming arrays to ensure the counts are set to 0 initially
+        const sectionsWithCounts = forEligibleSection?.map(item => ({
+            ...item,
+            totalEligibleCount: 0,
+            totalClaimedCount: 0
+        })) || [];
+
+        const programsWithCounts = forEligibleProgramsAndYear?.map(item => ({
+            ...item,
+            totalEligibleCount: 0,
+            totalClaimedCount: 0
+        })) || [];
 
         // 4. Create New Event
-        const newEvent = new Event({
-            eventID,
-            eventName,
-            eventScope,
-            startDay,
-            endDay,
-            startMonth,
+        const newEvent = new Event({ 
+            eventID, 
+            eventName, 
+            eventScope, 
+            startDay, 
+            endDay, 
+            startMonth, 
             endMonth,
-            eventColor,
-            forEligibleSection,
-            forEligibleProgramsAndYear
-            // Note: scheduleStatus defaults to 'ONGOING' per your schema
-            // submissionStatus defaults to 'PENDING' per your schema
+            eventColor, 
+            forEligibleSection: sectionsWithCounts, 
+            forEligibleProgramsAndYear: programsWithCounts,
+            submissionStatus: 'APPROVED'
         });
 
         await newEvent.save();
 
-        res.status(200).json({
+        addNotification("Event Created", `successfully created ${eventName} event!`);
+        
+        res.status(200).json({ 
             message: `${eventName} event created successfully!`,
             data: newEvent
         });

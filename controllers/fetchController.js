@@ -5,7 +5,7 @@ import eligibilityBasicEd from "../models/eligibilityBasicEd.js"
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 import Event from "../models/event.js"
 
-import claimRecord from "../models/claimRecord.js"
+import ClaimRecord from "../models/claimRecord.js"
 
 import SectionProgram from "../models/sectionprogram.js"
 
@@ -26,8 +26,6 @@ const getUnifiedSchoolData = async (req, res) => {
       adviserMap[adv.section] = fullName;
     });
 
-    // 3. Initialize Buckets (Keys match Frontend IDs)
-    // 🟢 CHANGED: Keys are now camelCase to match GenericTable tabs
     const departmentsMap = {
       "preschool": {},
       "primaryEducation": {},
@@ -262,7 +260,7 @@ const getTodayClaimRecord = async (req, res, next) => {
     endOfDay.setHours(23, 59, 59, 999);
 
     // 2. Find the single document that matches this time window
-    const todayRecord = await claimRecord.findOne({
+    const todayRecord = await ClaimRecord.findOne({
       claimDate: {
         $gte: startOfDay,
         $lte: endOfDay

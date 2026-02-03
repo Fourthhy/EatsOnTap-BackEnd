@@ -1,7 +1,7 @@
 import Setting from "../models/setting.js";
 
-import { assignCredits, removeCredits, assignCreditsForEvents } from "../controllers/claimController.js";
-import { initializeTodayRecord, finalizeTodayRecord } from '../controllers/reportController.js';
+import { syncGlobalEligibilityLogic, removeCredits, assignCreditsForEvents } from "../controllers/claimController.js";
+import { initializeTodayRecord, finalizeTodayRecord, initializeDailyReportLogic } from '../controllers/reportController.js';
 import { claimStatusResetLogic } from "../controllers/eligibilityController.js";
 import { updateEventStatusesLogic } from "../controllers/eventController.js";
 
@@ -12,7 +12,7 @@ const getTodayDate = () => {
 const getTodayDayName = () => {
     const date = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }));
     const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
-    return days[date.getDay()];
+    return days[date.getDay()]; 
 };
 
 const executeTaskLogic = async (settingName) => {
@@ -25,7 +25,7 @@ const executeTaskLogic = async (settingName) => {
             console.log("Executed claim status reset");
             
             const dayToday = getTodayDayName();
-            await assignCredits(dayToday); 
+            await syncGlobalEligibilityLogic(); 
             console.log(`Executed assign credits for ${dayToday}`);
             
             await assignCreditsForEvents();
@@ -40,6 +40,9 @@ const executeTaskLogic = async (settingName) => {
         case 'UPDATE-EVENTS':
             await updateEventStatusesLogic();
             console.log('Daily Update of Events');
+
+            await initializeDailyReportLogic();
+            console.log("Initialized System Generated Daily Report")
             break;
     }
         

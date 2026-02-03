@@ -3,6 +3,7 @@ const router = express.Router();
 
 const fetchController = require('../controllers/fetchController');
 const reportController = require('../controllers/reportController');
+const claimController = require('../controllers/claimController');
 
 // === ADMIN FETCHERS === 
 
@@ -31,5 +32,7 @@ router.get('/getSchoolStructure', fetchController.getSchoolStructure);
 router.get('/getDashboardData', reportController.getDashboardData);
 
 router.get('/getFinancialReport', reportController.getFinancialReport);
+
+router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday);
 
 module.exports = router;

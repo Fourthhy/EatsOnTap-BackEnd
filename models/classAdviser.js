@@ -11,7 +11,9 @@ const classAdviserSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, match: [/^[\w-\.]+@laverdad\.edu\.ph$/, 'Email must be a valid @laverdad.edu.ph address']},
     password: { type: String, required: true },
     isActive: { type: Boolean, default: false },
-    isRequiredChangePassword: { type: Boolean, default: false }
+    isRequiredChangePassword: { type: Boolean, default: false },
+    passwordResetToken: { type: String },
+    passwordResetExpires: { type: Date }
 })
 
 module.exports = mongoose.model('classAdviser', classAdviserSchema);

@@ -2,11 +2,12 @@ import Student from "../models/student.js"
 import Users from '../models/user.js';
 import eligibilityBasicEd from '../models/eligibilityBasicEd.js';
 import eligibilityHigherEd from '../models/eligibilityHigherEd.js';
-import event from "../models/event.js";
+import Event from "../models/event.js";
 
 import Setting from '../models/setting.js';
 
 import claimPerMealCount from '../models/admin/claimPerMealCount.js';
+import ClaimRecord from '../models/claimRecord.js';
 import claimTrends from '../models/admin/claimTrends.js';
 import eligibilityCount from '../models/admin/eligibilityCount.js';
 import programStatusCount from '../models/admin/programStatusCount.js';
@@ -16,6 +17,9 @@ import mealValue from "../models/mealValue.js";
 import claimRecord from "../models/claimRecord.js";
 
 import { logAction } from "./systemLoggerController.js"
+import { addNotification } from "./notificationController.js"
+
+import Report from "../models/report.js";
 
 //Approving Meal Eligibility Request and Scheduled Meal Eligibiltiy Request
 
@@ -31,118 +35,186 @@ const getStudentIDsBySection = async (section) => {
     const allStudentIDsInSection = await Student.find(
         { section: section },
         { studentID: 1, _id: 0 })
-        
+
     const allStudentIDs = allStudentIDsInSection.map(student => student.studentID);
     return allStudentIDs;
 }
+
+const getTodayDateComponents = () => {
+    const now = new Date();
+    return {
+        day: now.getDate(),
+        month: now.getMonth() + 1, // JS months are 0-11
+        year: now.getFullYear()
+    };
+};
 
 const approveMealEligibilityRequest = async (req, res, next) => {
     try {
         const { eligibilityID } = req.params;
 
-        // 1. Fetch and Validate the Eligibility Request
-        const eligibilityRequest = await eligibilityBasicEd.findOne({ eligibilityID });
+        // 1. Fetch Eligibility Request
+        const eligibilityRequest = await eligibilityBasicEd.findOne({
+            eligibilityID: eligibilityID
+        }).sort({ timeStamp: -1 });
 
         if (!eligibilityRequest) {
-            return res.status(404).json({ message: "Meal eligibility list does not exist" });
+            return res.status(404).json({ message: "Request not found." });
         }
 
         if (eligibilityRequest.status === 'APPROVED') {
-            return res.status(400).json({ message: "This list is already approved" });
+            return res.status(400).json({ message: "This list is already approved." });
         }
 
-        // 2. Fetch Student Details for the "Eligible" list
+        // 2. Prepare Data
+        const mealSetting = await mealValue.findOne();
+        const currentMealValue = mealSetting ? mealSetting.mealValue : 0;
+
         const eligibleStudentsData = await Student.find({
             studentID: { $in: eligibilityRequest.forEligible }
         });
 
-        // 3. Prepare the Data Structure for ClaimRecord
-        const newSectionRecord = {
-            section: eligibilityRequest.section,
-
-            // Map the eligible students
-            eligibleStudents: eligibleStudentsData.map(student => ({
-                studentID: student.studentID,
-                claimType: 'ELIGIBLE',
-                creditBalance: 60, // changed to 60 but change to student.creditValue || 0 later
-                onHandCash: 0
-            })),
-
-            // Map the waived students
-            waivedStudents: eligibilityRequest.forTemporarilyWaived.map(id => ({
-                studentID: id
-            }))
-        };
-
-        // 4. Determine Date Range for "Today"
+        // 3. Handle Daily Claim Record (The "Live" List)
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
-
         const endOfDay = new Date();
         endOfDay.setHours(23, 59, 59, 999);
 
-        // 5. Find if a ClaimRecord already exists for today
-        let dailyRecord = await claimRecord.findOne({
+        let dailyRecord = await ClaimRecord.findOne({
             claimDate: { $gte: startOfDay, $lte: endOfDay }
         });
 
+        const newStudentsPayload = eligibleStudentsData.map(student => ({
+            studentID: student.studentID,
+            claimType: 'ELIGIBLE',
+            creditBalance: currentMealValue,
+            onHandCash: 0
+        }));
+
         if (dailyRecord) {
-            // SCENARIO A: Append to existing
-            const sectionExists = dailyRecord.claimRecords.some(r => r.section === eligibilityRequest.section);
-            if (sectionExists) {
-                return res.status(400).json({ message: "This section has already been approved for today." });
+            const sectionIndex = dailyRecord.claimRecords.findIndex(r => r.section === eligibilityRequest.section);
+
+            if (sectionIndex !== -1) {
+                // === SECTION EXISTS: MERGE MODE ===
+                const existingIDs = new Set(dailyRecord.claimRecords[sectionIndex].eligibleStudents.map(s => s.studentID));
+                const studentsToAdd = newStudentsPayload.filter(s => !existingIDs.has(s.studentID));
+
+                if (studentsToAdd.length > 0) {
+                    dailyRecord.claimRecords[sectionIndex].eligibleStudents.push(...studentsToAdd);
+                    await dailyRecord.save();
+                }
+            } else {
+                // === NEW SECTION: ADD MODE ===
+                dailyRecord.claimRecords.push({
+                    section: eligibilityRequest.section,
+                    eligibleStudents: newStudentsPayload,
+                    waivedStudents: (eligibilityRequest.forTemporarilyWaived || []).map(id => ({ studentID: id }))
+                });
+                await dailyRecord.save();
             }
-            dailyRecord.claimRecords.push(newSectionRecord);
-            await dailyRecord.save();
+
         } else {
-            // SCENARIO B: Create new
-            dailyRecord = new claimRecord({
+            // === NEW DAY: CREATE MODE ===
+            dailyRecord = new ClaimRecord({
                 claimDate: startOfDay,
-                claimRecords: [newSectionRecord]
+                claimRecords: [{
+                    section: eligibilityRequest.section,
+                    eligibleStudents: newStudentsPayload,
+                    waivedStudents: (eligibilityRequest.forTemporarilyWaived || []).map(id => ({ studentID: id }))
+                }]
             });
             await dailyRecord.save();
         }
 
-        // 6. Finalize: Update the status of the request to APPROVED
+        // 4. Finalize Request Status
         eligibilityRequest.status = 'APPROVED';
         await eligibilityRequest.save();
 
-        // 🟢 SYSTEM LOG: Admin Approved List
-        // We attempt to get the Admin ID from req.user (standard middleware)
-        // If req.user is missing, we log it as 'SYSTEM' or 'UNKNOWN_ADMIN'
-        const actorID = req.user ? (req.user._id || req.user.userID) : null;
+        // 5. Update Report Stats
+        const { day, month, year } = getTodayDateComponents();
+        const eligibleCountToAdd = eligibilityRequest.forEligible ? eligibilityRequest.forEligible.length : 0;
+        
+        await Report.findOneAndUpdate(
+            { day, month, year },
+            { $inc: { "stats.eligibleStudentCount": eligibleCountToAdd } },
+            { new: true, upsert: true }
+        );
+
+        // =========================================================
+        // 🟢 6. UPDATE STUDENT RECORDS (Updated for String Schema)
+        // =========================================================
+        const updatePromises = [];
+
+        // A. Update Eligible Students
+        if (eligibilityRequest.forEligible && eligibilityRequest.forEligible.length > 0) {
+            updatePromises.push(
+                Student.updateMany(
+                    { studentID: { $in: eligibilityRequest.forEligible } },
+                    { 
+                        $set: { 
+                            temporaryClaimStatus: "ELIGIBLE", // 🟢 Changed to String
+                            temporaryCreditBalance: currentMealValue
+                        } 
+                    }
+                )
+            );
+        }
+
+        // B. Update Waived Students
+        if (eligibilityRequest.forTemporarilyWaived && eligibilityRequest.forTemporarilyWaived.length > 0) {
+            updatePromises.push(
+                Student.updateMany(
+                    { studentID: { $in: eligibilityRequest.forTemporarilyWaived } },
+                    { 
+                        $set: { 
+                            temporaryClaimStatus: "WAIVED", // 🟢 Changed to String
+                            temporaryCreditBalance: 0 
+                        } 
+                    }
+                )
+            );
+        }
+
+        // C. Update Absent Students
+        if (eligibilityRequest.forAbsentStudents && eligibilityRequest.forAbsentStudents.length > 0) {
+            updatePromises.push(
+                Student.updateMany(
+                    { studentID: { $in: eligibilityRequest.forAbsentStudents } },
+                    { 
+                        $set: { 
+                            temporaryClaimStatus: "ABSENT", // 🟢 Changed to String
+                            temporaryCreditBalance: 0 
+                        } 
+                    }
+                )
+            );
+        }
+
+        // Execute all updates
+        await Promise.all(updatePromises);
+        console.log("✅ Student statuses updated successfully.");
+
+        // =========================================================
+
+        // 7. Logs & Sockets
+        const actorID = req.user ? (req.user._id || req.user.userID) : "SYSTEM";
         const actorName = req.user ? req.user.email : "System Admin";
 
         await logAction(
-            {
-                id: actorID || "000000000000000000000000", // Fallback ID if auth missing
-                type: 'User',
-                name: actorName,
-                role: 'ADMIN'
-            },
-            'ACCEPT_LIST',
-            'SUCCESS',
-            {
-                referenceID: eligibilityID,
-                affectedCount: eligibleStudentsData.length,
-                description: `Approved meal list for ${eligibilityRequest.section} (${eligibleStudentsData.length} students)`
-            }
+            { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
+            'ACCEPT_LIST', 'SUCCESS',
+            { referenceID: eligibilityID, description: `Approved/Merged list for ${eligibilityRequest.section}` }
         );
 
-        // Socket Emit (Outside logic blocks)
         const io = req.app.get('socketio');
         if (io) {
             io.emit('meal-request-submit', { type: 'Basic Education', message: 'Update Triggered' });
-            console.log('🔔 Socket Emitted to all clients');
-        } else {
-            console.error('❌ Socket.io not found');
         }
 
-        res.status(200).json({
-            message: `Meal eligibility list ${eligibilityID} APPROVED and synced to Daily Records.`
-        });
+        res.status(200).json({ message: "List approved, synced, and student statuses updated successfully." });
 
     } catch (error) {
+        console.error("❌ Approve Error:", error);
         next(error);
     }
 };
@@ -161,17 +233,74 @@ const approveScheduleMealEligibilityRequest = async (req, res) => {
     }
 }
 
-const approveEvents = async (req, res) => {
+const approveEvents = async (req, res, next) => {
     try {
-        const schoolEvent = await event.findOne({ eventID: req.params.eventID });
+        const { eventID } = req.params;
+
+        // 1. Find the Event
+        const schoolEvent = await Event.findOne({ eventID: eventID });
+
         if (!schoolEvent) {
-            res.status(404).json({ message: "No such event exist!" });
+            return res.status(404).json({ message: "No such event exists!" });
         }
-        schoolEvent.status = 'APPROVED';
-        await schoolEvent.save()
-        res.status(200).json({ message: `${schoolEvent.eventName} event is now approved!` });
+
+        // 2. Update Status
+        schoolEvent.submissionStatus = 'APPROVED';
+
+        // 3. Calculate Counts for Basic Ed (Sections)
+        // We use Promise.all to run all counting queries in parallel for speed
+        if (schoolEvent.forEligibleSection && schoolEvent.forEligibleSection.length > 0) {
+
+            schoolEvent.forEligibleSection = await Promise.all(
+                schoolEvent.forEligibleSection.map(async (item) => {
+                    // Count students matching Section AND Year
+                    const count = await Student.countDocuments({
+                        section: item.section,
+                        year: item.year
+                    });
+
+                    return {
+                        section: item.section,
+                        year: item.year,
+                        totalEligibleCount: count, // 🟢 Inserted Count
+                        totalClaimedCount: 0     // Reset or keep 0
+                    };
+                })
+            );
+        }
+
+        // 4. Calculate Counts for Higher Ed (Programs)
+        if (schoolEvent.forEligibleProgramsAndYear && schoolEvent.forEligibleProgramsAndYear.length > 0) {
+
+            schoolEvent.forEligibleProgramsAndYear = await Promise.all(
+                schoolEvent.forEligibleProgramsAndYear.map(async (item) => {
+                    // Count students matching Program AND Year
+                    const count = await Student.countDocuments({
+                        program: item.program,
+                        year: item.year
+                    });
+
+                    return {
+                        program: item.program,
+                        year: item.year,
+                        totalEligibleCount: count, // 🟢 Inserted Count
+                        totalClaimedCount: 0
+                    };
+                })
+            );
+        }
+
+        // 5. Save Updates
+        await schoolEvent.save();
+
+        res.status(200).json({
+            message: `${schoolEvent.eventName} event is now approved and counts have been updated!`,
+            data: schoolEvent
+        });
+
     } catch (error) {
-        throw new Error(error)
+        // Use next(error) for consistency with Express error handling
+        next(error);
     }
 }
 
@@ -340,5 +469,5 @@ export {
     generateEligibilityList,
     addMealValue,
     editMealValue,
-    checkMealCreditValue
+    checkMealCreditValue,
 }

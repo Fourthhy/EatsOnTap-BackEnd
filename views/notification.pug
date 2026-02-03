@@ -1,0 +1,10 @@
+extends baseEmail
+
+block content
+  h2 Hello #{firstName},
+  p This is an automated notification from the system.
+  
+  p #{message}
+  
+  if url
+    a.btn(href=url) View Dashboard

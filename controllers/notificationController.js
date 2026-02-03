@@ -1,5 +1,32 @@
 import Notification from '../models/notification.js';
 
+const addNotification = async (type, description, io = null) => {
+    try {
+        console.log(`🔔 Generating Notification: [${type}] ${description}`);
+
+        // 1. Save to Database
+        const newNotif = new Notification({
+            notificationType: type, // Ensure model expects String or Array based on your schema
+            description: description,
+            date: new Date()
+        });
+
+        await newNotif.save();
+
+        // 2. Emit Socket Event (Only if IO is provided)
+        if (io) {
+            io.emit('receive-notification', newNotif);
+            console.log('📡 Socket Emitted to Client');
+        }
+
+        return newNotif; // Return the object so the caller can use it
+
+    } catch (error) {
+        console.error("❌ Error in addNotification:", error);
+        throw error; 
+    }
+};
+
 const generateNotification = async (req, res, next) => {
     try {
         const { type, description } = req.body;
@@ -8,28 +35,15 @@ const generateNotification = async (req, res, next) => {
             return res.status(400).json({ message: "Type and Description are required." });
         }
 
-        // 1. Save to Database
-        const newNotif = new Notification({
-            notificationType: type,
-            description: description,
-            date: new Date()
-        });
-
-        await newNotif.save();
-
-        // 2. Emit Socket Event
+        // Get the socket instance from Express
         const io = req.app.get('socketio');
-        if (io) {
-            // Emitting the actual notification object so frontend can display it immediately
-            io.emit('receive-notification', newNotif);
-            console.log('🔔 Socket Emitted: New Notification');
-        } else {
-            console.error('❌ Socket.io not found in request');
-        }
+
+        // Call the logic function
+        const data = await addNotification(type, description, io);
 
         res.status(201).json({
             message: "Notification created",
-            data: newNotif
+            data: data
         });
 
     } catch (error) {
@@ -99,5 +113,6 @@ const markAsRead = async (req, res, next) => {
 export {
     generateNotification,
     fetchNotifications,
-    markAsRead   
+    markAsRead,
+    addNotification
 }

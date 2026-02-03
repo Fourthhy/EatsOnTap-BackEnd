@@ -10,7 +10,11 @@ const studentSchema = new mongoose.Schema({
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
   year: { type: String, required: true },
-  temporaryClaimStatus: { type: [String], enum: ["ELIGIBLE", "NO-SCHEDULE", "WAIVED", "CLAIMED", "NO-BALANCE", "INELIGIBLE"], default: "INELIGIBLE" },
+  temporaryClaimStatus: {
+    type: String, // 🟢 CHANGE THIS from [String] to String
+    enum: ["ELIGIBLE", "NO-SCHEDULE", "WAIVED", "CLAIMED", "NO-BALANCE", "INELIGIBLE", "ABSENT"],
+    default: "INELIGIBLE"
+  },
   temporaryCreditBalance: { type: Number, default: 0 },
   academicStatus: { type: [String], enum: ["IRREGULAR", "REGULAR"], default: "REGULAR" },
   claimRecords: [{

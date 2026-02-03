@@ -7,7 +7,6 @@ router.get('/viewDishes', reportController.viewDishes);
 
 router.post('/addDishes', reportController.addDishes);
 
-
-
+router.post('/initializeDailyReport', reportController.initializeDailyReport);
 
 module.exports = router;

@@ -9,7 +9,7 @@ const claimRecordSchema = new mongoose.Schema({
             _id: false,
             studentID: { type: String, required: true },
             claimType: { type: String, required: true, default: "UNCLAIMED" }, // e.g., MEAL CLAIM, FOOD ITEM CLAIM
-            creditBalance: { type: Number, required: true },
+            creditBalance: { type: Number, default: 0 },
             onHandCash: { type: Number, required: true } // 0 is a valid number!
         }],
         waivedStudents: [{

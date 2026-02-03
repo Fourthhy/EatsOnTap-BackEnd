@@ -31,7 +31,6 @@ const initializeTodayRecord = async () => {
         const { start, end } = getPHDateRange();
 
         // Check if we already initialized to avoid duplicates
-        // We check if any student already has a record for this exact date range
         const alreadyInitialized = await Student.findOne({
             "claimRecords.date": { $gte: start, $lte: end }
         });
@@ -42,7 +41,6 @@ const initializeTodayRecord = async () => {
         }
 
         // Push a default "WAIVED" entry to ALL students
-        // Using the 'start' date ensures the timestamp is uniform (00:00 PH Time)
         await Student.updateMany({}, {
             $push: {
                 claimRecords: {
@@ -102,7 +100,6 @@ const finalizeTodayRecord = async () => {
             let creditUsed = 0;
 
             // Logic: Did they touch their credits?
-            // Since maxCredit is constant for the day, this check is safe.
             if (remainingBalance < maxCredit) {
                 // They spent something
                 finalStatus = "CLAIMED";
@@ -114,7 +111,6 @@ const finalizeTodayRecord = async () => {
             }
 
             // Add to Bulk Operation Queue
-            // Update the SPECIFIC history item for today
             bulkOps.push({
                 updateOne: {
                     filter: {
@@ -150,7 +146,7 @@ const finalizeTodayRecord = async () => {
 
 const initializeDailyReport = async (req, res, next) => {
     try {
-        const targetDate = req.body.date ? new Date(req.body.date) : new Date();
+        const targetDate = new Date();
         const day = targetDate.getDate();
         const month = targetDate.getMonth() + 1;
         const year = targetDate.getFullYear();
@@ -167,23 +163,19 @@ const initializeDailyReport = async (req, res, next) => {
         }
 
         // 🟢 HANDLE DISH INPUT (Flexible)
-        // 1. Check if 'dishes' array is sent
-        let dishesArray = req.body.dishes || [];
-
-        // 2. Fallback: If old 'dish1/dish2' format is sent, convert to array
+        let dishesArray = [];
         if (req.body.dish1) dishesArray.push(req.body.dish1);
         if (req.body.dish2) dishesArray.push(req.body.dish2);
 
         const newReport = new Report({
             day, month, year, dayOfWeek,
             menu: {
-                dishes: dishesArray // Saves as ["Adobo", "Sinigang", ...]
+                dishes: dishesArray
             }
         });
 
         await newReport.save();
 
-        // ... existing logging logic ...
         const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
         const actorName = req.user ? req.user.email : 'Admin';
 
@@ -201,6 +193,57 @@ const initializeDailyReport = async (req, res, next) => {
     } catch (error) {
         if (error.code === 11000) return res.status(409).json({ message: "Daily Report already exists." });
         next(error);
+    }
+};
+
+const getManilaDateComponents = (dateString) => {
+    const targetDate = dateString ? new Date(dateString) : new Date();
+    const manilaTimeStr = targetDate.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+    const manilaDate = new Date(manilaTimeStr);
+
+    return {
+        day: manilaDate.getDate(),
+        month: manilaDate.getMonth() + 1,
+        year: manilaDate.getFullYear(),
+        dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][manilaDate.getDay()],
+        dateObj: manilaDate
+    };
+};
+
+const initializeDailyReportLogic = async (customDate = null, customDishes = []) => {
+    try {
+        console.log("🔄 STARTING: Initializing Daily Report...");
+
+        // 1. Get Date Components
+        const { day, month, year, dayOfWeek } = getManilaDateComponents(customDate);
+
+        // 2. Check for Duplicate
+        const existingReport = await Report.findOne({ day, month, year });
+        if (existingReport) {
+            console.log(`ℹ️ Report for ${month}/${day}/${year} already exists.`);
+            return { success: false, message: "Report already exists", data: existingReport };
+        }
+
+        // 3. Create New Report
+        const newReport = new Report({
+            day, month, year, dayOfWeek,
+            menu: { dishes: customDishes }
+        });
+
+        await newReport.save();
+
+        await logAction(
+            { id: 'SYSTEM', type: 'System', name: 'Scheduler', role: 'SYSTEM' },
+            'CREATE_REPORT', 'SUCCESS',
+            { description: `Auto-Initialized Report for ${dayOfWeek}, ${month}/${day}/${year}`, referenceID: newReport._id }
+        );
+
+        console.log(`✅ Report initialized for ${dayOfWeek}, ${month}/${day}/${year}`);
+        return { success: true, message: "Report initialized", data: newReport };
+
+    } catch (error) {
+        console.error("❌ Error in initializeDailyReportLogic:", error);
+        throw error;
     }
 };
 
@@ -243,27 +286,35 @@ const formatSectionData = (label, records, kpiSettings) => {
         totalOcf += (r.metrics?.ocf || 0);
     });
 
-    // 3. Pick sample for dish names (mainly for Daily view)
+    // 3. Pick sample for dish names
     const sample = records[0] || {};
     const sampleMenu = sample.menu || {};
-
-    // 🟢 UPDATED: Join dishes array into a single string "Dish A / Dish B / Dish C"
     const dishesDisplay = (sampleMenu.dishes && sampleMenu.dishes.length > 0)
         ? sampleMenu.dishes.join(' / ')
         : "N/A";
 
-    // 4. Resolve KPI Ranges (Use Defaults if settings are missing)
+    // 4. Resolve KPI Ranges
     const ranges = kpiSettings || {
         tadmc: { min: 58, max: 62 },
         cur: { min: 90, max: 100 },
         ocf: { min: 0, max: 15 }
     };
 
+    // 🟢 CRITICAL FIX: Date Formatting to match "January 27, 2026"
+    // This ensures your React charts can map the data correctly.
+    const dateFormatted = sample.createdAt
+        ? new Date(sample.createdAt).toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        })
+        : "";
+
     return {
         barChart: {
             dayOfWeek: label,
-            date: sample.createdAt ? new Date(sample.createdAt).toLocaleDateString() : "",
-            dish: dishesDisplay, // 🟢 New field name (singular 'dish' containing the string)
+            date: dateFormatted, // Uses long format now
+            dish: dishesDisplay,
             Claimed: totalClaimed,
             Unclaimed: totalUnclaimed
         },
@@ -318,7 +369,7 @@ const formatFinancialData = (label, records) => {
 const getDailyData = async (anchorDate, kpiSettings) => {
     // Range: Anchor minus 5 days (Total 6 days including today)
     const startDate = new Date(anchorDate);
-    startDate.setDate(startDate.getDate() - 5);
+    startDate.setDate(startDate.getDate() - 6);
     startDate.setHours(0, 0, 0, 0);
 
     const endDate = new Date(anchorDate);
@@ -328,13 +379,10 @@ const getDailyData = async (anchorDate, kpiSettings) => {
         createdAt: { $gte: startDate, $lte: endDate }
     }).sort({ createdAt: 1 });
 
-    // Output Containers
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
 
     records.forEach(r => {
         const dayLabel = new Date(r.createdAt).toLocaleDateString('en-US', { weekday: 'long' });
-
-        // 🟢 Pass kpiSettings to the formatter
         const dashData = formatSectionData(dayLabel, [r], kpiSettings);
 
         result.bar.push(dashData.barChart);
@@ -342,8 +390,6 @@ const getDailyData = async (anchorDate, kpiSettings) => {
         result.tadmc.push(dashData.tadmc);
         result.cur.push(dashData.cur);
         result.ocf.push(dashData.ocf);
-
-        // Financial Data (No KPI ranges needed here)
         result.finance.push(formatFinancialData(dayLabel, [r]));
     });
 
@@ -356,9 +402,8 @@ const getDailyData = async (anchorDate, kpiSettings) => {
 const getWeeklyData = async (anchorDate, kpiSettings) => {
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
 
-    // Loop 3 down to 0 (3 weeks ago -> Current Week)
-    for (let i = 3; i >= 0; i--) {
-        // "Hop" logic: Go back i weeks
+    // 🟢 UPDATED: Loop 5 down to 0 (6 weeks total for better chart visualization)
+    for (let i = 6; i >= 0; i--) {
         const refDate = new Date(anchorDate);
         refDate.setDate(refDate.getDate() - (i * 7));
         const { start, end } = getWeekBounds(refDate);
@@ -368,9 +413,6 @@ const getWeeklyData = async (anchorDate, kpiSettings) => {
         });
 
         const label = i === 0 ? "Current Week" : `${i} Week(s) Ago`;
-
-        // 1. Dashboard Data
-        // 🟢 Pass kpiSettings to the formatter
         const dashData = formatSectionData(label, records, kpiSettings);
 
         result.bar.push(dashData.barChart);
@@ -378,8 +420,6 @@ const getWeeklyData = async (anchorDate, kpiSettings) => {
         result.tadmc.push(dashData.tadmc);
         result.cur.push(dashData.cur);
         result.ocf.push(dashData.ocf);
-
-        // 2. Financial Data
         result.finance.push(formatFinancialData(label, records));
     }
 
@@ -392,22 +432,20 @@ const getWeeklyData = async (anchorDate, kpiSettings) => {
 const getMonthlyData = async (anchorDate, kpiSettings) => {
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
 
-    for (let i = 3; i >= 0; i--) {
+    // 🟢 UPDATED: Loop 5 down to 0 (6 months total)
+    for (let i = 6; i >= 0; i--) {
         const d = new Date(anchorDate);
         d.setMonth(d.getMonth() - i);
 
-        const targetMonth = d.getMonth() + 1; // 1-12
+        const targetMonth = d.getMonth() + 1;
         const targetYear = d.getFullYear();
         const monthName = d.toLocaleDateString('en-US', { month: 'long' });
 
-        // Query by specific month/year fields
         const records = await Report.find({
             month: targetMonth,
             year: targetYear
         });
 
-        // 1. Dashboard Data
-        // 🟢 Pass kpiSettings to the formatter
         const dashData = formatSectionData(monthName, records, kpiSettings);
 
         result.bar.push(dashData.barChart);
@@ -415,8 +453,6 @@ const getMonthlyData = async (anchorDate, kpiSettings) => {
         result.tadmc.push(dashData.tadmc);
         result.cur.push(dashData.cur);
         result.ocf.push(dashData.ocf);
-
-        // 2. Financial Data
         result.finance.push(formatFinancialData(monthName, records));
     }
 
@@ -427,16 +463,14 @@ const getMonthlyData = async (anchorDate, kpiSettings) => {
 // 4️⃣ MODULE: OVERALL DATA (Rankings & KPI)
 // =====================================================================
 const getOverallData = async (kpiSettings) => {
-    // A. Top 3 Most Claimed (Highest Traffic Days)
+    // A. Top 3 Most Claimed
     const topDays = await Report.find()
         .sort({ "stats.totalClaimed": -1 })
         .limit(3)
         .select('createdAt menu stats');
 
     const mostMealClaims = topDays.map((r, index) => {
-        // 🟢 UPDATED: Join dishes array
         const dishText = (r.menu?.dishes?.length) ? r.menu.dishes.join(' / ') : "N/A";
-
         return {
             title: ["Most", "Second Most", "Third Most"][index] + " Meal Claims",
             value: dishText,
@@ -444,16 +478,14 @@ const getOverallData = async (kpiSettings) => {
         };
     });
 
-    // B. Bottom 3 Least Claimed (Lowest Traffic, excluding 0)
+    // B. Bottom 3 Least Claimed
     const bottomDays = await Report.find({ "stats.totalClaimed": { $gt: 0 } })
         .sort({ "stats.totalClaimed": 1 })
         .limit(3)
         .select('createdAt menu stats');
 
     const leastMealClaims = bottomDays.map((r, index) => {
-        // 🟢 UPDATED: Join dishes array
         const dishText = (r.menu?.dishes?.length) ? r.menu.dishes.join(' / ') : "N/A";
-
         return {
             title: ["Least", "Second Least", "Third Least"][index] + " Claimed Combination",
             value: dishText,
@@ -461,7 +493,7 @@ const getOverallData = async (kpiSettings) => {
         };
     });
 
-    // C. Global Aggregates (Sum of everything)
+    // C. Global Aggregates
     const agg = await Report.aggregate([
         {
             $group: {
@@ -479,12 +511,13 @@ const getOverallData = async (kpiSettings) => {
     ]);
     const data = agg[0] || {};
 
-    // Use default ranges if settings are missing
     const ranges = kpiSettings || {
         tadmc: { min: 58, max: 62 },
         cur: { min: 90, max: 100 },
         ocf: { min: 0, max: 15 }
     };
+
+    const totalAllottedCredits = data.totalUnused + data.totalConsumed;
 
     return {
         mostMealClaims,
@@ -515,7 +548,7 @@ const getOverallData = async (kpiSettings) => {
         consumedCredits: [
             { title: "Total Unused Credits", value: `₱${(data.totalUnused || 0).toLocaleString()}`, subtitle: "Actual unused credits" },
             { title: "Total Consumed Credits", value: `₱${(data.totalConsumed || 0).toLocaleString()}`, subtitle: "Actual consumed credits" },
-            { title: "Total Allotted Credits", value: `₱${(data.totalAllotted || 0).toLocaleString()}`, subtitle: "Total budget distributed" }
+            { title: "Total Allotted Credits", value: `₱${totalAllottedCredits.toLocaleString()}`, subtitle: "Total budget distributed" }
         ]
     };
 };
@@ -528,11 +561,22 @@ const getDashboardData = async (req, res, next) => {
         const anchorDate = req.query.date ? new Date(req.query.date) : new Date();
         console.log(`📊 Generating Dashboard for: ${anchorDate.toLocaleDateString()}`);
 
-        // 1. Fetch Dynamic KPI Settings
-        // We fetch this ONCE and pass it down to ensure all charts use the same targets
         const kpiSettings = await KPIRange.findOne();
 
-        // 2. Fetch all modules independently (Injecting kpiSettings)
+        const { day, month, year } = getManilaDateComponents(anchorDate.toISOString());
+
+        const currentReport = await Report.findOne({ day, month, year });
+
+        const currentStats = currentReport ? currentReport.stats : {
+            totalClaimed: 0, totalUnclaimed: 0,
+            prePackedCount: 0, customizedCount: 0, unusedVoucherCount: 0,
+            eligibleStudentCount: 0, absentStudentCount: 0, waivedStudentCount: 0
+        };
+
+        const currentFinancials = currentReport ? currentReport.financials : {
+            totalConsumedCredits: 0, totalUnusedCredits: 0, totalAlottedCtredits: 0
+        };
+
         const [daily, weekly, monthly, overall] = await Promise.all([
             getDailyData(anchorDate, kpiSettings),
             getWeeklyData(anchorDate, kpiSettings),
@@ -540,7 +584,6 @@ const getDashboardData = async (req, res, next) => {
             getOverallData(kpiSettings)
         ]);
 
-        // 3. Construct Final JSON Structure
         res.status(200).json({
             today: [
                 { barChartData: daily.bar },
@@ -563,7 +606,9 @@ const getDashboardData = async (req, res, next) => {
                 { CURdata: monthly.cur },
                 { OCFdata: monthly.ocf }
             ],
-            overall: overall
+            overall: overall,
+            stats: currentStats,
+            financials: currentFinancials
         });
 
     } catch (error) {
@@ -579,7 +624,6 @@ const getFinancialReport = async (req, res, next) => {
         const anchorDate = req.query.date ? new Date(req.query.date) : new Date();
         console.log(`💰 Generating Financial Report for: ${anchorDate.toLocaleDateString()}`);
 
-        // We can reuse the same fetching logic but extract only the 'finance' part
         const [daily, weekly, monthly] = await Promise.all([
             getDailyData(anchorDate),
             getWeeklyData(anchorDate),
@@ -610,34 +654,66 @@ const getTargetDate = (dateString) => {
 const addDishes = async (req, res, next) => {
     try {
         const { dishes, date } = req.body;
-        
+
         // 1. Validation
         if (!dishes || !Array.isArray(dishes) || dishes.length === 0) {
             return res.status(400).json({ message: "Please provide an array of dishes (strings)." });
         }
 
+        // 2. Date Calculation
+        // We need the date object to calculate 'dayOfWeek' in case we need to create a new record
+        const dateObj = date ? new Date(date) : new Date();
         const { day, month, year, formatted } = getTargetDate(date);
 
-        // 2. Find and Update
-        // We use $addToSet to prevent duplicate dishes (e.g., adding "Adobo" twice)
+        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        const dayOfWeek = dayNames[dateObj.getDay()];
+
+        // 3. Upsert Operation (Update if exists, Insert if new)
         const updatedReport = await Report.findOneAndUpdate(
-            { day, month, year },
-            { $addToSet: { "menu.dishes": { $each: dishes } } }, 
-            { new: true } // Return the updated document
+            { day, month, year }, // Search criteria
+            {
+                // A. Always add the new dishes (preventing duplicates in the array)
+                $addToSet: { "menu.dishes": { $each: dishes } },
+
+                // B. ONLY set these fields if we are inserting a NEW document
+                $setOnInsert: {
+                    dayOfWeek: dayOfWeek,
+                    stats: {
+                        totalClaimed: 0,
+                        totalUnclaimed: 0,
+                        prePackedCount: 0,
+                        customizedCount: 0,
+                        unusedVoucherCount: 0,
+                        eligibleStudentCount: 0,
+                        absentStudentCount: 0,
+                        waivedStudentCount: 0
+                    },
+                    financials: {
+                        totalConsumedCredits: 0,
+                        totalUnusedCredits: 0,
+                        totalAlottedCtredits: 0
+                    }
+                }
+            },
+            {
+                new: true,    // Return the modified document
+                upsert: true, // 🟢 Create the document if it doesn't exist
+                setDefaultsOnInsert: true
+            }
         );
 
-        if (!updatedReport) {
-            return res.status(404).json({ message: `No report found for ${formatted}. Please initialize the report first.` });
-        }
-
-        // 3. Log Action
+        // 4. Log Action
         const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
         const actorName = req.user ? req.user.email : 'Admin';
-        
+
+        // Determine if it was created or updated for the log message
+        // (If it was just created, the array length equals the input length)
+        const actionType = updatedReport.menu.dishes.length === dishes.length ? 'CREATE_AND_UPDATE_MENU' : 'UPDATE_MENU';
+
         await logAction(
             { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
-            'UPDATE_MENU', 
-            'SUCCESS', 
+            actionType,
+            'SUCCESS',
             { description: `Added dishes: ${dishes.join(', ')} to ${formatted}`, referenceID: updatedReport._id }
         );
 
@@ -653,7 +729,6 @@ const addDishes = async (req, res, next) => {
 
 const viewDishes = async (req, res, next) => {
     try {
-        // Accepts date from Query string: ?date=2024-03-25
         const { day, month, year, formatted } = getTargetDate(req.query.date);
 
         const report = await Report.findOne({ day, month, year }).select('menu dayOfWeek');
@@ -674,12 +749,12 @@ const viewDishes = async (req, res, next) => {
 };
 
 
-
 export {
     initializeTodayRecord,
     finalizeTodayRecord,
 
-    initializeDailyReport, //called at the heartbeat
+    initializeDailyReport,
+    initializeDailyReportLogic,
 
     addDishes,
     viewDishes,

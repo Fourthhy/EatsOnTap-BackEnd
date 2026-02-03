@@ -3,6 +3,7 @@ import Student from '../models/student.js';
 import csv from 'csv-parser';
 import stream from 'stream';
 import SectionProgram from "../models/sectionprogram.js"
+import ProgramSchedule from "../models/ProgramSchedule.js";
 
 import { logWaiveStatus, logEligibilityStatus } from "./loggerController.js";
 
@@ -131,46 +132,98 @@ const getStudentBySection = async (req, res, next) => {
 
 //Create students from CSV
 const creteStudentFromCSV = async (req, res, next) => {
-  //checking if there is an file uploaded
+  // checking if there is a file uploaded
   if (!req.file) {
     return res.status(400).json({ message: "no CSV file uploaded" });
   }
 
   const studentData = [];
 
-  //create a readable stream from the buffer (in the config)
+  // create a readable stream from the buffer
   const bufferStream = new stream.Readable();
   bufferStream.push(req.file.buffer);
-  bufferStream.push(null); //end of the stream buffering 
+  bufferStream.push(null); // end of the stream buffering 
 
   let parseError = null;
 
   bufferStream
     .pipe(csv())
     .on('data', (data) => {
-      studentData.push(data)
+      studentData.push(data);
     })
     .on('end', async () => {
       if (parseError) return;
+
       if (studentData.length === 0) {
         return res.status(400).json({ message: "CSV is empty or headers are incorrect, please check" });
       }
-      try {
-        //bulking insert all documents
 
+      try {
+        // 1. Bulk insert all students
         const addedStudents = await Student.insertMany(studentData, { ordered: false });
 
+        // =========================================================
+        // 🟢 NEW LOGIC: SYNC PROGRAM SCHEDULES
+        // =========================================================
+
+        // A. Extract unique combinations using a Map
+        // Key: "ProgramName-Year", Value: Object for ProgramSchedule
+        const uniqueSchedules = new Map();
+
+        studentData.forEach(row => {
+          // Handle loose CSV headers (e.g. "program", "programName", "year", "yearLevel")
+          // Ensure we trim whitespace
+          const pName = (row.programName || row.program || row.course || "").trim();
+          const pYear = (row.year || row.yearLevel || "").trim();
+
+          if (pName && pYear) {
+            const compositeKey = `${pName}-${pYear}`; // Unique identifier
+
+            if (!uniqueSchedules.has(compositeKey)) {
+              uniqueSchedules.set(compositeKey, {
+                programName: pName,
+                year: pYear,
+                // Assign to everyday as requested
+                dayOfWeek: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
+                status: ["PENDING"]
+              });
+            }
+          }
+        });
+
+        // B. Convert Map values to Array
+        const schedulePayload = Array.from(uniqueSchedules.values());
+
+        // C. Insert into ProgramSchedule Model
+        // We use { ordered: false } so that if a duplicate exists (E11000), 
+        // it ignores that specific error and continues inserting the others.
+        if (schedulePayload.length > 0) {
+          try {
+            await ProgramSchedule.insertMany(schedulePayload, { ordered: false });
+            console.log(`✅ Synced ${schedulePayload.length} Program Schedules.`);
+          } catch (scheduleError) {
+            // We intentionally catch and log this to avoid crashing the response.
+            // Duplicate key errors are expected and ignored here.
+            console.log("ℹ️ Some schedules already existed and were skipped.");
+          }
+        }
+
+        // =========================================================
+
         res.status(201).json({ message: `Successfully Created ${addedStudents.length} students` });
+
       } catch (error) {
         console.error("Mongoose insert bulk error:", error.message);
-        return res.status(400).json({ message: "Bulk insertion failed" })
+        // If ordered: false is used, it might return a partial success error object, 
+        // but often we just want to tell the user something failed.
+        return res.status(400).json({ message: "Bulk insertion failed or partially failed", details: error.message });
       }
     })
     .on('error', (error) => {
       parseError = error;
-      next({ status: 400, message: "Error entering CSV File" })
-    })
-}
+      next({ status: 400, message: "Error entering CSV File" });
+    });
+};
 
 //function to MANUALLY label the student as WAIVED
 const waiveStudent = async (req, res, next) => {

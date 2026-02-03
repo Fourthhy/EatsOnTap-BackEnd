@@ -15,4 +15,10 @@ router.post('/loginClassAdviser', authController.loginClassAdviser);
 //Router for class adviser logout
 router.post('/logoutClassAdviser', authController.logoutClassAdviser);
 
+//email
+router.post('/resetPassword', authController.resetPassword);
+
+//after email onboard
+router.post('/resetToDefaultPassword', authController.resetToDefaultPassword);
+
 module.exports = router;

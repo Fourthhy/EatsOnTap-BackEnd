@@ -10,7 +10,7 @@ const userAuthentication = require('../middlewares/userAuthentication');
 // router.put('/claim-meal', userAuthentication.authSecurity, userAuthentication.foodServerAuth, claimController.claimMeal);
 router.put('/claim-meal', claimController.claimMeal);
 //New route for claiming food item
-router.put('/:studentID/claim-foodItem', userAuthentication.authSecurity, userAuthentication.canteenStaffAuth, claimController.claimFood);
+router.put('/:studentID/claim-foodItem', claimController.claimFood);
 //Unprotected Routes
 
 router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday);

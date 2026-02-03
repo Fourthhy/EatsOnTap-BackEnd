@@ -3,7 +3,8 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser'); // 🟢 1. Import it here
+const cookieParser = require('cookie-parser'); 
+const helmet = require('helmet'); // 🟢 1. Import Helmet
 
 // ... imports ...
 const studentRoutes = require('./routes/studentRoutes');
@@ -38,7 +39,25 @@ const allowedOrigins = [
   'https://eats-on-tap-front-end.vercel.app'
 ];
 
-// 1. Define CORS options
+// 🟢 2. Apply HELMET Middleware (The Fix)
+// We configure this to allow connections to your local server and Vercel
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"], 
+        // 🟢 Allow connections to localhost:3000 and your frontend
+        connectSrc: ["'self'", "http://localhost:3000", "http://localhost:5173"], 
+        scriptSrc: ["'self'", "'unsafe-inline'"], 
+        styleSrc: ["'self'", "'unsafe-inline'"], 
+        imgSrc: ["'self'", "data:", "https:"], 
+      },
+    },
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+  })
+);
+
+// 3. Define CORS options
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -55,17 +74,17 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-// 2. Apply CORS middleware globally FIRST
+// 4. Apply CORS middleware globally
 app.use(cors(corsOptions));
 
-// 3. Handle Preflight requests specifically
+// 5. Handle Preflight requests specifically
 app.options(/(.*)/, cors(corsOptions));
 
-// 🟢 4. Cookie Parser (MIDDLEWARE ORDER IS IMPORTANT)
+// 6. Cookie Parser (MIDDLEWARE ORDER IS IMPORTANT)
 // This must be BEFORE your routes so req.cookies is available in the controllers
 app.use(cookieParser());
 
-// 5. Body parser
+// 7. Body parser
 app.use(bodyParser.json());
 
 // Routes
@@ -88,7 +107,6 @@ app.use('/api/sectionprogram', sectionprogramRoutes);
 app.use('/api/systemlogger', systemLoggerRoutes);
 app.use('/api/mealvalue', mealValueRoutes);
 app.use('/api/report', reportRoutes);
-
 
 //for development purposes
 app.use('/api/dev', developerRoutes);
