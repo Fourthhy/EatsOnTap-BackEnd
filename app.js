@@ -3,7 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser'); 
+const cookieParser = require('cookie-parser');
 const helmet = require('helmet'); // 🟢 1. Import Helmet
 
 // ... imports ...
@@ -45,12 +45,12 @@ app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
-        defaultSrc: ["'self'"], 
+        defaultSrc: ["'self'"],
         // 🟢 Allow connections to localhost:3000 and your frontend
-        connectSrc: ["'self'", "http://localhost:3000", "http://localhost:5173"], 
-        scriptSrc: ["'self'", "'unsafe-inline'"], 
-        styleSrc: ["'self'", "'unsafe-inline'"], 
-        imgSrc: ["'self'", "data:", "https:"], 
+        connectSrc: ["'self'", "http://localhost:3000", "http://localhost:5173"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
       },
     },
     crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -62,7 +62,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -86,6 +86,11 @@ app.use(cookieParser());
 
 // 7. Body parser
 app.use(bodyParser.json());
+
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 
 // Routes
 app.use('/api/adminAssistant', adminAssistantRoutes);
