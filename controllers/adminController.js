@@ -21,6 +21,8 @@ import { addNotification } from "./notificationController.js"
 
 import Report from "../models/report.js";
 
+import MonthlyReport from "../models/monthlyReport.js";
+
 //Approving Meal Eligibility Request and Scheduled Meal Eligibiltiy Request
 
 //Transforming Status from "PENDING" to "APPROVED"
@@ -130,88 +132,121 @@ const approveMealEligibilityRequest = async (req, res, next) => {
         eligibilityRequest.status = 'APPROVED';
         await eligibilityRequest.save();
 
-        // 5. Update Report Stats
-        const { day, month, year } = getTodayDateComponents();
-        const eligibleCountToAdd = eligibilityRequest.forEligible ? eligibilityRequest.forEligible.length : 0;
-        
-        await Report.findOneAndUpdate(
-            { day, month, year },
-            { $inc: { "stats.eligibleStudentCount": eligibleCountToAdd } },
-            { new: true, upsert: true }
+        // =========================================================
+        // 🟢 5. UPDATE DASHBOARD ANALYTICS (MonthlyReport Model)
+        // =========================================================
+
+        // Calculate the exact numbers to add to the dashboard
+        const incEligible = eligibilityRequest.forEligible?.length || 0;
+        const incWaived = eligibilityRequest.forTemporarilyWaived?.length || 0;
+        const incAbsences = eligibilityRequest.forAbsentStudents?.length || 0;
+        const incCredits = incEligible * currentMealValue;
+
+        // Get strict Manila boundaries for the query
+        const now = new Date();
+        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const manilaDate = new Date(manilaTimeStr);
+
+        const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
+        const startOfManilaDay = new Date(manilaDate);
+        startOfManilaDay.setHours(0, 0, 0, 0);
+        const endOfManilaDay = new Date(manilaDate);
+        endOfManilaDay.setHours(23, 59, 59, 999);
+
+        const reportUpdate = await MonthlyReport.findOneAndUpdate(
+            { bucketMonth },
+            {
+                $inc: {
+                    // Update Monthly Root Totals
+                    "statistics.totalEligible": incEligible,
+                    "statistics.totalWaived": incWaived,
+                    "statistics.totalAbsences": incAbsences,
+                    "financials.totalAllottedCredits": incCredits,
+                    "financials.totalUnusedCredits": incCredits, // Added to unused pool until claimed
+
+                    // Update Today's Specific Array Element
+                    "dailyReports.$[todayRecord].statistics.totalEligible": incEligible,
+                    "dailyReports.$[todayRecord].statistics.totalWaived": incWaived,
+                    "dailyReports.$[todayRecord].statistics.totalAbsences": incAbsences,
+                    "dailyReports.$[todayRecord].financials.totalAllottedCredits": incCredits,
+                    "dailyReports.$[todayRecord].financials.totalUnusedCredits": incCredits
+                }
+            },
+            {
+                new: true,
+                arrayFilters: [
+                    { "todayRecord.date": { $gte: startOfManilaDay, $lte: endOfManilaDay } }
+                ]
+            }
         );
 
+        if (!reportUpdate) {
+            console.warn(`⚠️ Analytics bucket for ${bucketMonth} not found. Stats were not updated.`);
+        }
+
         // =========================================================
-        // 🟢 6. UPDATE STUDENT RECORDS (Updated for String Schema)
+        // 🟢 6. UPDATE STUDENT RECORDS (Bulk Update)
         // =========================================================
         const updatePromises = [];
 
         // A. Update Eligible Students
-        if (eligibilityRequest.forEligible && eligibilityRequest.forEligible.length > 0) {
+        if (incEligible > 0) {
             updatePromises.push(
                 Student.updateMany(
                     { studentID: { $in: eligibilityRequest.forEligible } },
-                    { 
-                        $set: { 
-                            temporaryClaimStatus: "ELIGIBLE", // 🟢 Changed to String
+                    {
+                        $set: {
+                            temporaryClaimStatus: "ELIGIBLE",
                             temporaryCreditBalance: currentMealValue
-                        } 
+                        }
                     }
                 )
             );
         }
 
         // B. Update Waived Students
-        if (eligibilityRequest.forTemporarilyWaived && eligibilityRequest.forTemporarilyWaived.length > 0) {
+        if (incWaived > 0) {
             updatePromises.push(
                 Student.updateMany(
                     { studentID: { $in: eligibilityRequest.forTemporarilyWaived } },
-                    { 
-                        $set: { 
-                            temporaryClaimStatus: "WAIVED", // 🟢 Changed to String
-                            temporaryCreditBalance: 0 
-                        } 
+                    {
+                        $set: {
+                            temporaryClaimStatus: "WAIVED",
+                            temporaryCreditBalance: 0
+                        }
                     }
                 )
             );
         }
 
         // C. Update Absent Students
-        if (eligibilityRequest.forAbsentStudents && eligibilityRequest.forAbsentStudents.length > 0) {
+        if (incAbsences > 0) {
             updatePromises.push(
                 Student.updateMany(
                     { studentID: { $in: eligibilityRequest.forAbsentStudents } },
-                    { 
-                        $set: { 
-                            temporaryClaimStatus: "ABSENT", // 🟢 Changed to String
-                            temporaryCreditBalance: 0 
-                        } 
+                    {
+                        $set: {
+                            temporaryClaimStatus: "ABSENT",
+                            temporaryCreditBalance: 0
+                        }
                     }
                 )
             );
         }
 
-        // Execute all updates
+        // Execute all student updates at the exact same time
         await Promise.all(updatePromises);
         console.log("✅ Student statuses updated successfully.");
 
         // =========================================================
-
-        // 7. Logs & Sockets
-        const actorID = req.user ? (req.user._id || req.user.userID) : "SYSTEM";
-        const actorName = req.user ? req.user.email : "System Admin";
-
-        await logAction(
-            { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
-            'ACCEPT_LIST', 'SUCCESS',
-            { referenceID: eligibilityID, description: `Approved/Merged list for ${eligibilityRequest.section}` }
-        );
-
+        // 7. Sockets (And optional logging)
+        // =========================================================
         const io = req.app.get('socketio');
         if (io) {
             io.emit('meal-request-submit', { type: 'Basic Education', message: 'Update Triggered' });
         }
 
-        res.status(200).json({ message: "List approved, synced, and student statuses updated successfully." });
+        return res.status(200).json({ message: "List approved, synced, and student statuses updated successfully." });
 
     } catch (error) {
         console.error("❌ Approve Error:", error);
@@ -460,6 +495,102 @@ const checkMealCreditValue = async (req, res, next) => {
     }
 }
 
+// =====================================================================
+// 🚀 NEW: BULK PROMOTION & GRADUATION CONTROLLER
+// =====================================================================
+const promoteStudentsBulk = async (req, res, next) => {
+    try {
+        const {
+            department,     // 'basic' or 'higher'
+            currentLevel,   // e.g., '11' or '1'
+            currentGroup,   // The Section (Basic) or Program (Higher) name
+            targetLevel,    // The level they are going to
+            targetGroup,    // The NEW Section (Basic Ed only)
+            action          // 'promote' or 'graduate'
+        } = req.body;
+
+        // 1. Build the Search Filter (Who are we updating?)
+        const filter = { year: currentLevel };
+
+        // 🟢 FIX: Only filter by program/section if currentGroup was actually provided
+        if (currentGroup) {
+            if (department === 'higher') {
+                filter.program = currentGroup;
+            } else {
+                filter.section = currentGroup;
+            }
+        }
+
+        // 2. Double Check: Are there even students to update?
+        const studentCount = await Student.countDocuments(filter);
+        if (studentCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: `No students found in ${currentLevel} - ${currentGroup}.`
+            });
+        }
+
+        // 3. Build the Update Document (What are we changing?)
+        let updateDoc = {};
+
+        if (action === 'graduate') {
+            // 🎓 Graduation Logic: Keep their records, but mark them as Alumni
+            updateDoc = {
+                $set: {
+                    type: 'Alumni', // Or 'Graduated', depending on your schema
+                    // Optional: You could clear their RFID tags here so they can be reused next year!
+                    // rfidTag: "" 
+                }
+            };
+        } else if (action === 'promote') {
+            // 📈 Promotion Logic
+            if (department === 'higher') {
+                // Higher Ed: Just increment the year, program stays the same
+                updateDoc = { $set: { year: targetLevel } };
+            } else {
+                // Basic Ed: Increment year AND assign to the new section
+                if (!targetGroup) {
+                    return res.status(400).json({ message: "Target section is required for Basic Ed promotion." });
+                }
+                updateDoc = {
+                    $set: {
+                        year: targetLevel,
+                        section: targetGroup
+                    }
+                };
+            }
+        } else {
+            return res.status(400).json({ message: "Invalid action specified." });
+        }
+
+        // 4. EXECUTE THE BULK UPDATE (The MERN Expert Way)
+        const result = await Student.updateMany(filter, updateDoc);
+
+        // 5. Log the massive action for security audits
+        const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
+        const actorName = req.user ? req.user.email : 'Admin';
+
+        await logAction(
+            { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
+            action === 'graduate' ? 'GRADUATE_SECTION' : 'PROMOTE_SECTION',
+            'SUCCESS',
+            {
+                description: `Bulk updated ${result.modifiedCount} students from ${currentLevel}-${currentGroup}.`,
+            }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `Successfully ${action === 'graduate' ? 'graduated' : 'promoted'} ${result.modifiedCount} students!`,
+            modifiedCount: result.modifiedCount
+        });
+
+    } catch (error) {
+        console.error("Bulk Promotion Error:", error);
+        next(error);
+    }
+};
+
 
 export {
     approveMealEligibilityRequest,
@@ -470,4 +601,5 @@ export {
     addMealValue,
     editMealValue,
     checkMealCreditValue,
+    promoteStudentsBulk
 }

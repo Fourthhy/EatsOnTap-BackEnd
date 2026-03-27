@@ -31,6 +31,55 @@ const getPHDateRange = () => {
     };
 };
 
+//Helper 2: asynchronous computation for financials and metrics
+/**
+ * @desc Background task to recalculate TADMC, CUR, and OCF after a claim.
+ * It does not block the main thread.
+ */
+const recalculateDailyMetrics = async (bucketMonth, startOfDay, endOfDay) => {
+    try {
+        // 1. Fetch the current report for today
+        const report = await MonthlyReport.findOne(
+            { bucketMonth, "dailyReports.date": { $gte: startOfDay, $lte: endOfDay } },
+            { "dailyReports.$": 1 } // Only return today's array element for speed
+        );
+
+        if (!report || !report.dailyReports || report.dailyReports.length === 0) return;
+
+        const todayData = report.dailyReports[0];
+        const stats = todayData.statistics;
+        const fins = todayData.financials;
+
+        // 2. Safely perform the math to avoid Divide-by-Zero errors
+        const totalClaims = stats.totalClaimed || 0;
+        const totalUsed = fins.totalUsedCredits || 0;
+        const totalAllotted = fins.totalAllottedCredits || 0;
+        const totalCash = fins.totalOnHandCash || 0; // Assuming we add this tracking
+
+        const tadmc = totalClaims > 0 ? (totalUsed / totalClaims) : 0;
+        const cur = totalAllotted > 0 ? ((totalUsed / totalAllotted) * 100) : 0;
+        const ocf = totalUsed > 0 ? ((totalCash / totalUsed) * 100) : 0;
+
+        // 3. Save the calculated metrics directly to the array element
+        await MonthlyReport.updateOne(
+            { bucketMonth },
+            {
+                $set: {
+                    "dailyReports.$[todayRecord].metrics.tadmc": Number(tadmc.toFixed(2)),
+                    "dailyReports.$[todayRecord].metrics.cur": Number(cur.toFixed(2)),
+                    "dailyReports.$[todayRecord].metrics.ocf": Number(ocf.toFixed(2))
+                }
+            },
+            {
+                arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
+            }
+        );
+
+    } catch (error) {
+        console.error("❌ Background Metric Calculation Error:", error.message);
+    }
+};
+
 const claimMeal = async (req, res, next) => {
     try {
         const { studentInput } = req.body;
@@ -45,7 +94,7 @@ const claimMeal = async (req, res, next) => {
             return res.status(404).json({ message: 'Student not found.' });
         }
 
-        // 3. Validation: Check Student's Profile Directly
+        // 3. Validation: Check Student's Profile
         if (student.temporaryClaimStatus !== 'ELIGIBLE') {
             return res.status(409).json({
                 message: `Status is ${student.temporaryClaimStatus}. Cannot claim.`
@@ -61,22 +110,24 @@ const claimMeal = async (req, res, next) => {
         if (!creditModel) return res.status(500).json({ message: "System error: Meal value not set." });
         const MEAL_COST = creditModel.mealValue;
 
-        // 5. Find Today's Master Claim Record (For syncing)
-        const startOfDay = new Date();
+        // 5. Enforce Strict Manila Time Boundaries
+        const now = new Date();
+        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const manilaDate = new Date(manilaTimeStr);
+        
+        const startOfDay = new Date(manilaDate);
         startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date();
+        const endOfDay = new Date(manilaDate);
         endOfDay.setHours(23, 59, 59, 999);
-
-        const dailyRecord = await ClaimRecord.findOne({
-            claimDate: { $gte: startOfDay, $lte: endOfDay }
-        });
+        
+        const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
 
         // =========================================================
-        // 6. EXECUTE UPDATES
+        // 🟢 6. CONCURRENT DATABASE UPDATES (Using Promise.all)
         // =========================================================
 
         // A. Update Student Profile
-        await Student.updateOne(
+        const updateStudentPromise = Student.updateOne(
             { studentID: student.studentID },
             {
                 $set: {
@@ -85,7 +136,7 @@ const claimMeal = async (req, res, next) => {
                 },
                 $push: {
                     claimRecords: {
-                        date: new Date(),
+                        date: manilaDate,
                         creditClaimed: MEAL_COST,
                         remarks: ["CLAIMED"]
                     }
@@ -93,67 +144,88 @@ const claimMeal = async (req, res, next) => {
             }
         );
 
-        // B. Sync with ClaimRecord (if exists)
-        if (dailyRecord) {
-            let foundSectionIdx = -1;
-            let foundStudentIdx = -1;
+        // B. Sync with ClaimRecord (Masterlist)
+        const updateClaimRecordPromise = (async () => {
+            const dailyRecord = await ClaimRecord.findOne({
+                claimDate: { $gte: startOfDay, $lte: endOfDay }
+            });
 
-            // Locate student in 2D array
-            for (let i = 0; i < dailyRecord.claimRecords.length; i++) {
-                const sIdx = dailyRecord.claimRecords[i].eligibleStudents.findIndex(s => s.studentID === student.studentID);
-                if (sIdx !== -1) {
-                    foundSectionIdx = i;
-                    foundStudentIdx = sIdx;
-                    break;
+            if (dailyRecord) {
+                let foundSectionIdx = -1;
+                let foundStudentIdx = -1;
+
+                for (let i = 0; i < dailyRecord.claimRecords.length; i++) {
+                    const sIdx = dailyRecord.claimRecords[i].eligibleStudents.findIndex(s => s.studentID === student.studentID);
+                    if (sIdx !== -1) {
+                        foundSectionIdx = i;
+                        foundStudentIdx = sIdx;
+                        break;
+                    }
+                }
+
+                if (foundSectionIdx !== -1 && foundStudentIdx !== -1) {
+                    const path = `claimRecords.${foundSectionIdx}.eligibleStudents.${foundStudentIdx}`;
+                    await ClaimRecord.updateOne(
+                        { _id: dailyRecord._id },
+                        {
+                            $set: {
+                                [`${path}.claimType`]: "MEAL-CLAIM",
+                                [`${path}.creditBalance`]: 0
+                            }
+                        }
+                    );
                 }
             }
+        })();
 
-            if (foundSectionIdx !== -1 && foundStudentIdx !== -1) {
-                const path = `claimRecords.${foundSectionIdx}.eligibleStudents.${foundStudentIdx}`;
-                await ClaimRecord.updateOne(
-                    { _id: dailyRecord._id },
-                    {
-                        $set: {
-                            [`${path}.claimType`]: "MEAL-CLAIM",
-                            [`${path}.creditBalance`]: 0
-                        }
-                    }
-                );
-            }
-        }
-
-        // C. Update Daily Report (Stats) - 🟢 FIXED DATE LOGIC
-        // We use Manila time explicitly to match how the Report was created
-        const now = new Date();
-        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
-        const manilaDate = new Date(manilaTimeStr);
-
-        const day = manilaDate.getDate();
-        const month = manilaDate.getMonth() + 1;
-        const year = manilaDate.getFullYear();
-
-        const reportUpdate = await Report.findOneAndUpdate(
-            { day, month, year }, // Search criteria
+        // C. Update Dashboard Analytics (MonthlyReport)
+        const updateDashboardPromise = MonthlyReport.findOneAndUpdate(
+            { bucketMonth },
             {
                 $inc: {
-                    // Statistics
-                    "stats.totalClaimed": 1,
-
-                    // Financials
-                    "financials.totalConsumedCredits": MEAL_COST,
-
-                    // Optional: If you track "Unused" continuously, you decrement it here
-                    // "financials.totalUnusedCredits": -MEAL_COST 
+                    // Update Root Totals
+                    "statistics.totalMealsClaimed": 1,
+                    "statistics.totalClaimed": 1,
+                    "financials.totalUsedCredits": MEAL_COST,
+                    "financials.totalUnusedCredits": -MEAL_COST, // Shift from Unused to Used
+                    
+                    // Update Today's Specific Array Element
+                    "dailyReports.$[todayRecord].statistics.totalMealsClaimed": 1,
+                    "dailyReports.$[todayRecord].statistics.totalClaimed": 1,
+                    "dailyReports.$[todayRecord].financials.totalUsedCredits": MEAL_COST,
+                    "dailyReports.$[todayRecord].financials.totalUnusedCredits": -MEAL_COST
                 }
             },
-            { new: true } // Return the updated document
+            {
+                new: true,
+                arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
+            }
         );
 
-        if (!reportUpdate) {
-            console.warn(`⚠️ Report not found for ${month}/${day}/${year}. Stats were not updated.`);
-        }
+        // D. System Logging
+        const loggingPromise = logAction(
+            { id: student._id, type: 'User', name: student.studentID, role: 'STUDENT' },
+            'CLAIM_MEAL',
+            'SUCCESS',
+            {
+                description: `Claimed Standard Meal`,
+                creditUsed: MEAL_COST,
+                cashPaid: 0
+            }
+        );
 
-        // 7. Socket Emit
+        // Execute all 4 database operations instantly and concurrently
+        await Promise.all([
+            updateStudentPromise, 
+            updateClaimRecordPromise, 
+            updateDashboardPromise, 
+            loggingPromise
+        ]);
+
+        // =========================================================
+        // 7. Post-Claim Actions (Sockets & Background Math)
+        // =========================================================
+
         const io = req.app.get('socketio');
         if (io) {
             io.emit('meal-claimed', {
@@ -163,6 +235,11 @@ const claimMeal = async (req, res, next) => {
             });
         }
 
+        // 🔥 FIRE AND FORGET: Update TADMC, CUR, OCF in the background.
+        // We do NOT use 'await' here so the POS tablet doesn't have to wait.
+        recalculateDailyMetrics(bucketMonth, startOfDay, endOfDay);
+
+        // 8. Return Success Payload
         return res.status(200).json({
             message: "Meal claimed successfully!",
             data: {
@@ -174,6 +251,7 @@ const claimMeal = async (req, res, next) => {
         });
 
     } catch (error) {
+        console.error("❌ Meal Claim Error:", error);
         next(error);
     }
 };
@@ -195,7 +273,6 @@ const claimFood = async (req, res, next) => {
         }
 
         // 3. Validate Eligibility
-        // Allow ELIGIBLE. If you allow partial claims, they might still be ELIGIBLE until balance is 0.
         if (student.temporaryClaimStatus !== 'ELIGIBLE') {
             return res.status(409).json({ message: `Student status is ${student.temporaryClaimStatus}. Cannot claim.` });
         }
@@ -205,7 +282,7 @@ const claimFood = async (req, res, next) => {
         }
 
         // ---------------------------------------------------------
-        // 🧮 CALCULATION LOGIC (The "On-Hand Cash" Logic)
+        // 🧮 4. CALCULATION LOGIC (Credits vs On-Hand Cash)
         // ---------------------------------------------------------
         const currentBalance = student.temporaryCreditBalance;
 
@@ -213,36 +290,36 @@ const claimFood = async (req, res, next) => {
         let amountPaidInCash = 0;
 
         if (creditTaken > currentBalance) {
-            // Case: Item cost exceeds balance (e.g. Cost 70, Balance 50)
-            amountDeductedFromCredit = currentBalance; // Deduct all 50
-            amountPaidInCash = creditTaken - currentBalance; // Pay 20 in Cash
+            amountDeductedFromCredit = currentBalance; 
+            amountPaidInCash = creditTaken - currentBalance; 
         } else {
-            // Case: Balance covers cost (e.g. Cost 30, Balance 50)
-            amountDeductedFromCredit = creditTaken; // Deduct 30
-            amountPaidInCash = 0; // No cash needed
+            amountDeductedFromCredit = creditTaken; 
+            amountPaidInCash = 0; 
         }
 
         const newStudentBalance = currentBalance - amountDeductedFromCredit;
-        const newStatus = newStudentBalance === 0 ? "CLAIMED" : "ELIGIBLE"; // Mark CLAIMED only if 0 left
+        const newStatus = newStudentBalance === 0 ? "CLAIMED" : "ELIGIBLE"; 
 
         // ---------------------------------------------------------
-        // 4. FIND TODAY'S MASTER RECORD (For Syncing)
+        // 5. ENFORCE MANILA TIME BOUNDARIES
         // ---------------------------------------------------------
-        const startOfDay = new Date();
+        const now = new Date();
+        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const manilaDate = new Date(manilaTimeStr);
+        
+        const startOfDay = new Date(manilaDate);
         startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date();
+        const endOfDay = new Date(manilaDate);
         endOfDay.setHours(23, 59, 59, 999);
+        
+        const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
 
-        const dailyRecord = await ClaimRecord.findOne({
-            claimDate: { $gte: startOfDay, $lte: endOfDay }
-        });
-
-        // ---------------------------------------------------------
-        // 5. EXECUTE DATABASE UPDATES
-        // ---------------------------------------------------------
+        // =========================================================
+        // 🟢 6. CONCURRENT DATABASE UPDATES (Using Promise.all)
+        // =========================================================
 
         // A. Update Student Profile
-        await Student.updateOne(
+        const updateStudentPromise = Student.updateOne(
             { studentID: student.studentID },
             {
                 $set: {
@@ -251,7 +328,7 @@ const claimFood = async (req, res, next) => {
                 },
                 $push: {
                     claimRecords: {
-                        date: new Date(),
+                        date: manilaDate,
                         creditClaimed: amountDeductedFromCredit,
                         remarks: amountPaidInCash > 0 ? ["PARTIAL-CASH", `CASH:${amountPaidInCash}`] : ["CLAIMED"]
                     }
@@ -259,74 +336,95 @@ const claimFood = async (req, res, next) => {
             }
         );
 
-        // B. Update Master ClaimRecord (Syncing Cash & Balance)
-        if (dailyRecord) {
-            let foundSectionIdx = -1;
-            let foundStudentIdx = -1;
+        // B. Update Master ClaimRecord
+        const updateClaimRecordPromise = (async () => {
+            const dailyRecord = await ClaimRecord.findOne({
+                claimDate: { $gte: startOfDay, $lte: endOfDay }
+            });
 
-            // Locate student nested in sections
-            for (let i = 0; i < dailyRecord.claimRecords.length; i++) {
-                const sIdx = dailyRecord.claimRecords[i].eligibleStudents.findIndex(s => s.studentID === student.studentID);
-                if (sIdx !== -1) {
-                    foundSectionIdx = i;
-                    foundStudentIdx = sIdx;
-                    break;
+            if (dailyRecord) {
+                let foundSectionIdx = -1;
+                let foundStudentIdx = -1;
+
+                for (let i = 0; i < dailyRecord.claimRecords.length; i++) {
+                    const sIdx = dailyRecord.claimRecords[i].eligibleStudents.findIndex(s => s.studentID === student.studentID);
+                    if (sIdx !== -1) {
+                        foundSectionIdx = i;
+                        foundStudentIdx = sIdx;
+                        break;
+                    }
+                }
+
+                if (foundSectionIdx !== -1 && foundStudentIdx !== -1) {
+                    const path = `claimRecords.${foundSectionIdx}.eligibleStudents.${foundStudentIdx}`;
+                    await ClaimRecord.updateOne(
+                        { _id: dailyRecord._id },
+                        {
+                            $set: {
+                                [`${path}.creditBalance`]: newStudentBalance,
+                                [`${path}.claimType`]: newStatus === "CLAIMED" ? "MEAL-CLAIM" : "PARTIAL"
+                            },
+                            $inc: {
+                                [`${path}.onHandCash`]: amountPaidInCash
+                            }
+                        }
+                    );
                 }
             }
+        })();
 
-            if (foundSectionIdx !== -1 && foundStudentIdx !== -1) {
-                const path = `claimRecords.${foundSectionIdx}.eligibleStudents.${foundStudentIdx}`;
+        // C. Update Dashboard Analytics (Dynamic Math)
+        // We dynamically build the $inc object based on whether they fully depleted their balance
+        const dashboardIncMath = {
+            "statistics.totalSnacksClaimed": 1,
+            "financials.totalUsedCredits": amountDeductedFromCredit,
+            "financials.totalUnusedCredits": -amountDeductedFromCredit,
+            "financials.totalOnHandCash": amountPaidInCash,
+            
+            "dailyReports.$[todayRecord].statistics.totalSnacksClaimed": 1,
+            "dailyReports.$[todayRecord].financials.totalUsedCredits": amountDeductedFromCredit,
+            "dailyReports.$[todayRecord].financials.totalUnusedCredits": -amountDeductedFromCredit,
+            "dailyReports.$[todayRecord].financials.totalOnHandCash": amountPaidInCash
+        };
 
-                // We use $inc for onHandCash to accumulate it if they buy multiple times (rare but safe)
-                // We use $set for creditBalance to match the student profile
-                await ClaimRecord.updateOne(
-                    { _id: dailyRecord._id },
-                    {
-                        $set: {
-                            [`${path}.creditBalance`]: newStudentBalance,
-                            [`${path}.claimType`]: newStatus === "CLAIMED" ? "MEAL-CLAIM" : "PARTIAL"
-                        },
-                        $inc: {
-                            [`${path}.onHandCash`]: amountPaidInCash
-                        }
-                    }
-                );
-            }
+        // If this snack depleted their balance to 0, mark them as officially "Claimed" for the day
+        if (newStatus === "CLAIMED") {
+            dashboardIncMath["statistics.totalClaimed"] = 1;
+            dashboardIncMath["dailyReports.$[todayRecord].statistics.totalClaimed"] = 1;
         }
 
-        // C. Update Daily Report (Financials)
-        const now = new Date();
-        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
-        const manilaDate = new Date(manilaTimeStr);
-        const day = manilaDate.getDate();
-        const month = manilaDate.getMonth() + 1;
-        const year = manilaDate.getFullYear();
-
-        await Report.findOneAndUpdate(
-            { day, month, year },
+        const updateDashboardPromise = MonthlyReport.findOneAndUpdate(
+            { bucketMonth },
+            { $inc: dashboardIncMath },
             {
-                $inc: {
-                    // Only count as "Total Claimed" if they fully used up their credits (optional logic)
-                    // Or count every transaction. Usually, we track credits consumed.
-                    "financials.totalConsumedCredits": amountDeductedFromCredit,
-                    "financials.totalUnusedCredits": -amountDeductedFromCredit
-                }
+                new: true,
+                arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
             }
         );
 
-        // 6. Log & Response
-        await logAction(
+        // D. System Logging
+        const loggingPromise = logAction(
             { id: student._id, type: 'User', name: student.studentID, role: 'STUDENT' },
             'CLAIM_FOOD',
             'SUCCESS',
             {
-                description: `Claimed Item: ${creditTaken}`,
+                description: `Claimed Item/Snack worth ${creditTaken}`,
                 creditUsed: amountDeductedFromCredit,
                 cashPaid: amountPaidInCash
             }
         );
 
-        // Socket Emit
+        // Execute all updates simultaneously
+        await Promise.all([
+            updateStudentPromise, 
+            updateClaimRecordPromise, 
+            updateDashboardPromise, 
+            loggingPromise
+        ]);
+
+        // =========================================================
+        // 7. Post-Claim Actions (Sockets & Background Math)
+        // =========================================================
         const io = req.app.get('socketio');
         if (io) {
             io.emit('meal-claimed', {
@@ -336,6 +434,10 @@ const claimFood = async (req, res, next) => {
             });
         }
 
+        // 🔥 FIRE AND FORGET: Update OCF and CUR in the background
+        recalculateDailyMetrics(bucketMonth, startOfDay, endOfDay);
+
+        // 8. Return Success Payload
         return res.json({
             studentID: student.studentID,
             Name: `${student.first_name} ${student.last_name}`,
@@ -346,6 +448,7 @@ const claimFood = async (req, res, next) => {
         });
 
     } catch (error) {
+        console.error("❌ Food Claim Error:", error);
         next(error);
     }
 };
@@ -391,231 +494,121 @@ const deductCredits = async (req, res, next) => {
     }
 };
 
-const removeCredits = async () => {
-    const students = await Student.find();
-    const updatedStudents = [];
-
-    for (const student of students) {
-        if (student.creditValue === 0) continue;
-
-        await logClaimAttempt(student.studentID, 'REMOVED-UNUSED-BALANCE', student.creditValue);
-
-        student.creditValue = 0;
-        student.mealEligibilityStatus = 'INELIGIBLE';
-        await student.save();
-
-        updatedStudents.push({
-            studentID: student.studentID,
-            name: student.name,
-            course: student.course,
-            mealEligibilityStatus: student.mealEligibilityStatus,
-            creditValue: student.creditValue
-        });
-    }
-    return updatedStudents;
-};
-
-const assignCredits = async (dayToday) => {
+/**
+ * @desc Sweeps the database at the end of the day. 
+ * Reclaims credits from students who didn't eat, updates the POS masterlist, 
+ * and pushes "Unclaimed" stats to the dashboard.
+ */
+const sweepUnclaimedCredits = async (req, res, next) => {
     try {
-        console.log(`🔄 STARTING: Assigning credits for ${dayToday}...`);
+        console.log("🧹 Starting End-of-Day Sweep for Unclaimed Credits...");
 
-        // 1. Fetch Global Credit Value
-        const creditSettings = await Credit.findOne({});
-        if (!creditSettings) throw new Error("Credit value (Price) not set in database");
-        const ALLOCATED_CREDIT = creditSettings.creditValue;
-
-        // 2. Fetch Approved & Unassigned Requests
-        const [basicRequests, higherRequests] = await Promise.all([
-            eligibilityBasicEd.find({ status: 'APPROVED', creditAssigned: false }),
-            eligibilityHigherEd.find({ status: 'APPROVED', creditAssigned: false, forDay: dayToday })
-        ]);
-
-        // 3. Extract Unique Student IDs
-        const studentIds = new Set([
-            ...basicRequests.flatMap(req => req.forEligible),
-            ...higherRequests.flatMap(req => req.forEligible)
-        ]);
-
-        if (studentIds.size === 0) {
-            console.log("ℹ️ No new students to assign credits to.");
-            return;
-        }
-
-        // 4. Fetch Student Details (We need their Section/Program to organize the ClaimRecord)
-        const students = await Student.find({ studentID: { $in: Array.from(studentIds) } })
-            .select('studentID section program year');
-
-        // 5. Group Students by Section (Required for ClaimRecord Schema)
-        // Map Structure: { "Grade 1 - Hope": [StudentObj, StudentObj], ... }
-        const sectionMap = {};
-
-        students.forEach(student => {
-            // Determine grouping key: Section for Basic Ed, Program + Year for Higher Ed
-            const groupKey = student.section || `${student.program} ${student.year}`;
-
-            if (!sectionMap[groupKey]) {
-                sectionMap[groupKey] = [];
-            }
-
-            sectionMap[groupKey].push({
-                studentID: student.studentID,
-                claimType: "UNCLAIMED", // Default status
-                creditBalance: ALLOCATED_CREDIT, // Give them the 60 credits here
-                onHandCash: 0
-            });
-        });
-
-        // 6. Update Today's Claim Record
-        const { start, end } = getPHDateRange();
-
-        // Find existing record or create new one
-        let dailyRecord = await ClaimRecord.findOne({
-            claimDate: { $gte: start, $lte: end }
-        });
-
-        if (!dailyRecord) {
-            // Create fresh if it doesn't exist (e.g., initialized logic failed or wasn't run)
-            dailyRecord = new ClaimRecord({
-                claimDate: start, // Use the PH start time
-                claimRecords: []
-            });
-        }
-
-        // Merge Logic: Insert new students into the correct sections
-        Object.keys(sectionMap).forEach(sectionName => {
-            const newEligibles = sectionMap[sectionName];
-
-            // Check if section already exists in the record
-            const existingSection = dailyRecord.claimRecords.find(r => r.section === sectionName);
-
-            if (existingSection) {
-                // Filter out duplicates (students already assigned)
-                const existingIDs = new Set(existingSection.eligibleStudents.map(s => s.studentID));
-                const uniqueToAdd = newEligibles.filter(s => !existingIDs.has(s.studentID));
-
-                existingSection.eligibleStudents.push(...uniqueToAdd);
-            } else {
-                // Add new section entry
-                dailyRecord.claimRecords.push({
-                    section: sectionName,
-                    eligibleStudents: newEligibles,
-                    waivedStudents: [] // Initialize empty
-                });
-            }
-        });
-
-        await dailyRecord.save();
-        console.log(`✅ ClaimRecord updated with ${students.length} eligible students.`);
-
-        // 7. Mark Requests as Assigned (Lock them)
-        const requestUpdatePromises = [
-            ...basicRequests.map(doc => { doc.creditAssigned = true; return doc.save(); }),
-            ...higherRequests.map(doc => { doc.creditAssigned = true; return doc.save(); })
-        ];
-
-        await Promise.all(requestUpdatePromises);
-        console.log("✅ Eligibility requests marked as processed.");
-
-    } catch (error) {
-        console.error("❌ Error in assignCredits:", error);
-        throw error; // Re-throw so scheduler knows it failed
-    }
-};
-
-
-//Ultimate Assign Credits (Called at the hearbeat)
-const syncGlobalEligibilityLogic = async (io = null) => {
-    try {
-        console.log("🔄 STARTING: Global Eligibility Sync...");
-
-        // 1. Get the current meal value
-        const mealValDoc = await mealValue.findOne();
-        if (!mealValDoc) {
-            throw new Error("No Meal Value configuration found.");
-        }
-        const currentMealValue = mealValDoc.mealValue;
-
-        // 2. Define Date Components (Manila Time Context)
+        // 1. Enforce Strict Manila Time for the sweep boundaries
         const now = new Date();
-        const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const manilaDate = new Date(manilaTimeStr);
 
-        const day = now.getDate();
-        const month = now.getMonth() + 1;
-        const year = now.getFullYear();
+        const startOfDay = new Date(manilaDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(manilaDate);
+        endOfDay.setHours(23, 59, 59, 999);
 
-        // 3. Find today's ClaimRecord
-        const todayRecord = await ClaimRecord.findOne({
+        // 2. Find ALL students who are STILL "ELIGIBLE" at the end of the day
+        const missedStudents = await Student.find({ temporaryClaimStatus: "ELIGIBLE" });
+
+        if (missedStudents.length === 0) {
+            console.log("✅ Sweep complete: No unclaimed meals today!");
+            // If called via API, return response. If called via Pulse, just return the object.
+            if (res) return res.status(200).json({ message: "No unclaimed meals today." });
+            return { sweptCount: 0, reclaimedCredits: 0 };
+        }
+
+        // 3. Aggregate the data for bulk updates
+        const missedCount = missedStudents.length;
+        let totalReclaimedCredits = 0;
+        const studentIDsToUpdate = [];
+
+        missedStudents.forEach(student => {
+            totalReclaimedCredits += student.temporaryCreditBalance;
+            studentIDsToUpdate.push(student.studentID);
+        });
+
+        // =========================================================
+        // 🟢 4. BULK UPDATE 1: Student Profiles (Lightning Fast)
+        // =========================================================
+        await Student.updateMany(
+            { studentID: { $in: studentIDsToUpdate } },
+            {
+                $set: {
+                    temporaryClaimStatus: "INELIGIBLE",
+                    temporaryCreditBalance: 0
+                }
+            }
+        );
+
+        // =========================================================
+        // 🟢 5. BULK UPDATE 2: Cafeteria Masterlist (ClaimRecord)
+        // =========================================================
+        const dailyRecord = await ClaimRecord.findOne({
             claimDate: { $gte: startOfDay, $lte: endOfDay }
         });
 
-        if (!todayRecord) {
-            console.log("ℹ️ No ClaimRecord found for today. Skipping sync.");
-            return { success: false, reason: "No ClaimRecord" };
+        if (dailyRecord) {
+            let recordModified = false;
+            dailyRecord.claimRecords.forEach(section => {
+                section.eligibleStudents.forEach(student => {
+                    // Only change them if they are still marked as ELIGIBLE
+                    if (student.claimType === "ELIGIBLE") {
+                        student.claimType = "UNCLAIMED";
+                        student.creditBalance = 0;
+                        recordModified = true;
+                    }
+                });
+            });
+            if (recordModified) await dailyRecord.save();
         }
 
-        // 4. Aggregate Counts and Prep Updates
-        let totalEligibleCount = 0;
-        let totalWaivedCount = 0;
-        const allStudentIDs = [];
+        // =========================================================
+        // 🟢 6. BULK UPDATE 3: Monthly Dashboard Analytics
+        // =========================================================
+        const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
 
-        todayRecord.claimRecords.forEach(section => {
-            totalEligibleCount += section.eligibleStudents.length;
-            totalWaivedCount += section.waivedStudents.length;
-
-            section.eligibleStudents.forEach(student => {
-                student.creditBalance = currentMealValue;
-                allStudentIDs.push(student.studentID);
-            });
-        });
-
-        // 5. Update Database Models
-        // A. Save today's transaction log
-        await todayRecord.save();
-
-        // B. Update Student profiles in bulk
-        const studentUpdate = await Student.updateMany(
-            { studentID: { $in: allStudentIDs } },
+        const reportUpdate = await MonthlyReport.findOneAndUpdate(
+            { bucketMonth },
             {
-                $set: {
-                    temporaryCreditBalance: currentMealValue,
-                    temporaryClaimStatus: "ELIGIBLE"
+                $inc: {
+                    // Add to the "Unclaimed" stats
+                    "statistics.totalUnclaimed": missedCount,
+                    "dailyReports.$[todayRecord].statistics.totalUnclaimed": missedCount
                 }
+            },
+            {
+                new: true,
+                arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
             }
         );
 
-        // C. Update the Daily Report Dashboard
-        const totalAllotted = currentMealValue * totalEligibleCount;
-        const reportUpdate = await Report.findOneAndUpdate(
-            { day, month, year },
-            {
-                $set: {
-                    "stats.eligibleStudentCount": totalEligibleCount,
-                    "stats.waivedStudentCount": totalWaivedCount,
-                    "financials.totalAlottedCtredits": totalAllotted
-                }
-            },
-            { new: true }
+        if (!reportUpdate) console.warn(`⚠️ Dashboard Analytics missing for ${bucketMonth} during sweep.`);
+
+        // 7. System Logging (Optional but recommended)
+        await logAction(
+            { id: "SYSTEM", type: "System", name: "PulseCron", role: "ADMIN" },
+            'SWEEP_CREDITS',
+            'SUCCESS',
+            { description: `Reclaimed ₱${totalReclaimedCredits} from ${missedCount} students.` }
         );
 
-        // 6. Socket Notification (Optional)
-        if (io) {
-            io.emit('sync-complete', {
-                message: 'Eligibility and Credits Synced',
-                mealValue: currentMealValue
-            });
+        console.log(`✅ Sweep complete: Wiped balances for ${missedCount} students. Reclaimed ₱${totalReclaimedCredits}.`);
+
+        // Support both Express Route (req, res) AND direct function call (System Pulse)
+        if (res) {
+            return res.status(200).json({ sweptCount: missedCount, reclaimedCredits: totalReclaimedCredits });
         }
-
-        console.log(`✅ SYNC SUCCESS: ${totalEligibleCount} students funded with ₱${currentMealValue}.`);
-
-        return {
-            success: true,
-            fundedCount: totalEligibleCount,
-            budget: totalAllotted
-        };
+        return { sweptCount: missedCount, reclaimedCredits: totalReclaimedCredits };
 
     } catch (error) {
-        console.error("❌ ERROR in syncGlobalEligibilityLogic:", error.message);
+        console.error("❌ Error during End-of-Day Sweep:", error);
+        if (next) next(error);
         throw error;
     }
 };
@@ -911,11 +904,9 @@ export {
     claimMeal,
     claimFood,
     deductCredits,
-    removeCredits,
-    assignCredits,
+    sweepUnclaimedCredits,
     assignCreditsForEvents,
     fakeMealClaim,
     fakeFoodItemClaim,
     getApprovedStudentsToday,
-    syncGlobalEligibilityLogic //called at the hearbeat
 } 

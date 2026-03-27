@@ -32,6 +32,10 @@ const developerRoutes = require('./routes/developerRouter');
 
 const errorHandler = require('./middlewares/eventHandler');
 
+// update
+
+const updatedMonthlyReportRoutes = require('./update/routes/monthlyReportRoutes');
+
 const app = express();
 
 const allowedOrigins = [
@@ -112,6 +116,10 @@ app.use('/api/sectionprogram', sectionprogramRoutes);
 app.use('/api/systemlogger', systemLoggerRoutes);
 app.use('/api/mealvalue', mealValueRoutes);
 app.use('/api/report', reportRoutes);
+
+//update 
+
+app.use('/api/update/', updatedMonthlyReportRoutes);
 
 //for development purposes
 app.use('/api/dev', developerRoutes);

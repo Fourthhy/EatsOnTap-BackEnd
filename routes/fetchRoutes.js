@@ -5,33 +5,39 @@ const fetchController = require('../controllers/fetchController');
 const reportController = require('../controllers/reportController');
 const claimController = require('../controllers/claimController');
 
-// === ADMIN FETCHERS === 
-
-router.get('/getUnifiedSchoolData', fetchController.getUnifiedSchoolData);
-
-router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
+// ========= FECTCH CONTROLLER ROUTES =========
 
 router.get('/getAllBasicEducationMealRequest', fetchController.getAllBasicEducationMealRequest);
 
-router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEducationMealRequest);
+router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
 
 router.get('/getAllEvents', fetchController.getAllEvents);
 
-router.get('/getTodayClaimRecord', fetchController.getTodayClaimRecord);
-
-router.get('/getStudentClaimReports', fetchController.getStudentClaimReports);
+router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEducationMealRequest);
 
 router.get('/getAllSectionProgramList', fetchController.getAllSectionProgramList);
 
+//not used.
 router.get('/getClassAdvisers', fetchController.getClassAdvisers);
-
-router.get('/getStudentsWithProgramOnly', fetchController.getStudentsWithProgramOnly);
 
 router.get('/getSchoolStructure', fetchController.getSchoolStructure);  
 
+router.get('/getStudentClaimReports', fetchController.getStudentClaimReports);
+
+router.get('/getStudentsWithProgramOnly', fetchController.getStudentsWithProgramOnly);
+
+router.get('/getTodayClaimRecord', fetchController.getTodayClaimRecord);
+
+router.get('/getUnifiedSchoolData', fetchController.getUnifiedSchoolData);
+
+// ========= REPORT CONTROLLER ROUTES =========
+
 router.get('/getDashboardData', reportController.getDashboardData);
 
+// not used.
 router.get('/getFinancialReport', reportController.getFinancialReport);
+
+// ========= CLAIM CONTROLLER ROUTES =========
 
 router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday);
 

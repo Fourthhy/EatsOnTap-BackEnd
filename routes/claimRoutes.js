@@ -4,8 +4,6 @@ const router = express.Router();
 const claimController = require('../controllers/claimController');
 const userAuthentication = require('../middlewares/userAuthentication');
 
-
-
 //New route for claiming free meal
 // router.put('/claim-meal', userAuthentication.authSecurity, userAuthentication.foodServerAuth, claimController.claimMeal);
 router.put('/claim-meal', claimController.claimMeal);
@@ -17,10 +15,7 @@ router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday
 
 // New route for deducting credits
 router.put('/:studentID/deduct-credits', claimController.deductCredits);
-//new route for assigning credits
-router.put('/assign-credit', claimController.assignCredits);
 //new route for deducting remaining credits
-router.put('/:studentID/remove-credits', claimController.removeCredits);
 
 router.get('/fakeMealClaim', claimController.fakeMealClaim)
 

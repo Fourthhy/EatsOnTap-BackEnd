@@ -8,6 +8,9 @@ import stream from 'stream';
 //fetch all users 
 import { logAction } from "./systemLoggerController.js"
 
+import Users from "../models/user.js";
+import classAdviser from "../models/classAdviser.js";
+
 const getAllUsers = async (req, res, next) => {
     try {
         const users = await User.find({});
@@ -181,8 +184,126 @@ const createUsersFromCSV = async (req, res, next) => {
         });
 };
 
+/**
+ * @desc Resets a user's password to their full name (lowercase, no spaces).
+ * Searches the 'Users' collection first, falling back to 'classAdviser'.
+ */
+const resetUserPassword = async (req, res, next) => {
+    try {
+        const { userID } = req.body;
+
+        if (!userID) {
+            return res.status(400).json({ message: "Please provide a userID." });
+        }
+
+        // 1. Search in the Users model first
+        let user = await Users.findOne({ userID });
+        let userType = 'System User';
+
+        // 2. If not found, fallback to the Class Adviser model
+        if (!user) {
+            user = await ClassAdviser.findOne({ userID });
+            userType = 'Class Adviser';
+        }
+
+        // 3. If neither model has this user, return an error
+        if (!user) {
+            return res.status(404).json({ message: "User not found in any system." });
+        }
+
+        // 4. Construct the raw password
+        // Fallback to empty strings just in case a field is missing in older records
+        const firstName = user.first_name || '';
+        const middleName = user.middle_name || '';
+        const lastName = user.last_name || '';
+
+        // Combine, lowercase, and remove all spaces
+        const rawPassword = `${firstName}${middleName}${lastName}`.replace(/\s+/g, '').toLowerCase();
+
+        // 5. Hash the new password (CRITICAL for security)
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(rawPassword, salt);
+
+        // 6. Update the user document
+        user.password = hashedPassword;
+        user.isRequiredChangePassword = true; // Force them to change it upon next login
+
+        await user.save();
+
+        // 7. Send success response
+        return res.status(200).json({
+            message: `Password reset successfully for ${userType}.`,
+            data: {
+                userID: user.userID,
+                name: `${firstName} ${lastName}`,
+                // NOTE: For security, you might want to remove 'resetTo' in production, 
+                // but it is very helpful to return it to the admin frontend for display right now.
+                resetTo: rawPassword
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Password Reset Error:", error);
+        next(error);
+    }
+};
+
+/**
+* @desc Edits ONLY the first, middle, and last names of a user.
+* Searches the 'Users' collection first, falling back to 'classAdviser'.
+*/
+const editName = async (req, res, next) => {
+    try {
+        const { userID, first_name, middle_name, last_name } = req.body;
+
+        if (!userID) {
+            return res.status(400).json({ message: "Please provide a userID." });
+        }
+
+        // 1. Search in the Users model first
+        let user = await Users.findOne({ userID });
+        let userType = 'System User';
+
+        // 2. Fallback to Class Adviser model
+        if (!user) {
+            user = await ClassAdviser.findOne({ userID });
+            userType = 'Class Adviser';
+        }
+
+        // 3. If neither model has this user, return an error
+        if (!user) {
+            return res.status(404).json({ message: "User not found in any system." });
+        }
+
+        // 4. Update ONLY the name fields (if they are provided)
+        // We use !== undefined to allow clearing a middle name (e.g., passing an empty string)
+        if (first_name !== undefined) user.first_name = first_name.trim();
+        if (middle_name !== undefined) user.middle_name = middle_name.trim();
+        if (last_name !== undefined) user.last_name = last_name.trim();
+
+        // 5. Save the updated user
+        await user.save();
+
+        return res.status(200).json({
+            message: `${userType} name updated successfully.`,
+            data: {
+                userID: user.userID,
+                first_name: user.first_name,
+                middle_name: user.middle_name,
+                last_name: user.last_name
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Edit Name Error:", error);
+        next(error);
+    }
+};
+
 export {
     getAllUsers,
     addUser,
-    createUsersFromCSV
+    createUsersFromCSV,
+    resetUserPassword,
+    editName
 }

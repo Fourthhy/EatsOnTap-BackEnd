@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const claimRecordSchema = new mongoose.Schema({
-    claimDate: { type: Date, default: Date.now },
+    claimDate: { type: Date, default: Date.now }, //assumingly this is daily?
     claimRecords: [{
         _id: false,
         section: { type: String, required: true },

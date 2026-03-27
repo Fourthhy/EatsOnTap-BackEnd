@@ -3,6 +3,7 @@ import ClaimRecord from '../models/claimRecord.js';
 import Credit from '../models/credit.js';
 import Report from '../models/report.js'
 import KPIRange from '../models/kpiRange.js';
+import MonthlyReport from '../models/monthlyReport.js';
 
 import { logAction } from "./systemLoggerController.js"
 
@@ -19,6 +20,35 @@ const getPHDateRange = () => {
     return {
         start: new Date(startOfDayVal),
         end: new Date(startOfDayVal + (24 * 60 * 60 * 1000) - 1)
+    };
+};
+
+// =========================================================
+// 🟢 NEW HELPER: Standardized Bucket Date Generator
+// =========================================================
+const getBucketDateInfo = (dateString = null) => {
+    const targetDate = dateString ? new Date(dateString) : new Date();
+    const manilaTimeStr = targetDate.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+    const manilaDate = new Date(manilaTimeStr);
+
+    const year = manilaDate.getFullYear();
+    const monthNum = String(manilaDate.getMonth() + 1).padStart(2, '0');
+
+    // Bucket Format: "YYYY-MM"
+    const bucketMonth = `${year}-${monthNum}`;
+
+    // Academic Year Logic (Assuming August start, adjust if needed)
+    const acadYearStart = manilaDate.getMonth() >= 7 ? year : year - 1;
+    const academicYear = `${acadYearStart}-${acadYearStart + 1}`;
+
+    // Clean UTC date at midnight for exact array matching
+    const cleanDate = new Date(Date.UTC(year, manilaDate.getMonth(), manilaDate.getDate()));
+
+    return {
+        bucketMonth,
+        academicYear,
+        cleanDate,
+        dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][manilaDate.getDay()]
     };
 };
 
@@ -63,35 +93,18 @@ const initializeTodayRecord = async () => {
 const finalizeTodayRecord = async () => {
     try {
         console.log("🔄 STARTING: Finalizing Daily Student Records...");
-
-        // A. Fetch Global Credit Value (The Benchmark)
         const creditSetting = await Credit.findOne();
         const maxCredit = creditSetting ? creditSetting.creditValue : 0;
 
-        if (maxCredit === 0) {
-            console.log("⚠️ WARNING: Global credit value is 0 or missing.");
-        }
+        // ... (fetch dailyRecord and flatten records exactly as you have it) ...
 
-        // B. Fetch Today's Claim Record
-        const { start, end } = getPHDateRange();
-        const dailyRecord = await ClaimRecord.findOne({
-            claimDate: { $gte: start, $lte: end }
-        });
-
-        if (!dailyRecord) {
-            return console.log("⚠️ NO CLAIM RECORD FOUND FOR TODAY. Skipping finalization.");
-        }
-
-        // C. Prepare Bulk Operations
         const bulkOps = [];
-        const flattenedRecords = [];
 
-        // Flatten all eligible students from all sections into one array
-        dailyRecord.claimRecords.forEach(section => {
-            if (section.eligibleStudents) {
-                flattenedRecords.push(...section.eligibleStudents);
-            }
-        });
+        // 🟢 NEW: Trackers for the Monthly Report
+        let todayClaimed = 0;
+        let todayUnclaimed = 0;
+        let todayUsedCredits = 0;
+        let todayAllottedCredits = flattenedRecords.length * maxCredit;
 
         // D. Build the Logic
         for (const student of flattenedRecords) {
@@ -99,38 +112,72 @@ const finalizeTodayRecord = async () => {
             let finalStatus = "UNCLAIMED";
             let creditUsed = 0;
 
-            // Logic: Did they touch their credits?
             if (remainingBalance < maxCredit) {
-                // They spent something
                 finalStatus = "CLAIMED";
                 creditUsed = maxCredit - remainingBalance;
+
+                // 🟢 NEW: Track Claimed
+                todayClaimed++;
+                todayUsedCredits += creditUsed;
             } else {
-                // Balance is full (or more), they bought nothing
                 finalStatus = "UNCLAIMED";
                 creditUsed = 0;
+
+                // 🟢 NEW: Track Unclaimed
+                todayUnclaimed++;
             }
 
-            // Add to Bulk Operation Queue
-            bulkOps.push({
-                updateOne: {
-                    filter: {
-                        studentID: student.studentID,
-                        "claimRecords.date": { $gte: start, $lte: end }
-                    },
-                    update: {
-                        $set: {
-                            "claimRecords.$.remarks": [finalStatus],
-                            "claimRecords.$.creditClaimed": creditUsed
-                        }
-                    }
-                }
-            });
+            // ... (Add to bulkOps exactly as you have it) ...
         }
 
-        // E. Execute Bulk Write
+        // E. Execute Bulk Write for Students
         if (bulkOps.length > 0) {
             await Student.bulkWrite(bulkOps);
             console.log(`✅ COMPLETED: Updated records for ${bulkOps.length} eligible students.`);
+
+            // 🟢 NEW: Now update the MonthlyReport Bucket!
+            const { bucketMonth, cleanDate } = getBucketDateInfo(start);
+            let monthlyReport = await MonthlyReport.findOne({ bucketMonth });
+
+            if (monthlyReport) {
+                let dailyReport = monthlyReport.dailyReports.find(dr => dr.date.getTime() === cleanDate.getTime());
+
+                if (dailyReport) {
+                    // 1. Update today's specific stats
+                    dailyReport.statistics.totalEligible = flattenedRecords.length;
+                    dailyReport.statistics.totalClaimed = todayClaimed;
+                    dailyReport.statistics.totalUnclaimed = todayUnclaimed;
+                    dailyReport.financials.totalAllottedCredits = todayAllottedCredits;
+                    dailyReport.financials.totalUsedCredits = todayUsedCredits;
+                    dailyReport.financials.totalUnusedCredits = todayAllottedCredits - todayUsedCredits;
+
+                    // 2. Recalculate the Root Bucket Totals (Only sum cumulative transactions)
+                    let totalMonthlyClaimed = 0;
+                    let totalMonthlyUnclaimed = 0;
+                    let totalMonthlyUsed = 0;
+                    let totalMonthlyUnused = 0;
+
+                    monthlyReport.dailyReports.forEach(dr => {
+                        totalMonthlyClaimed += dr.statistics.totalClaimed;
+                        totalMonthlyUnclaimed += dr.statistics.totalUnclaimed;
+                        totalMonthlyUsed += dr.financials.totalUsedCredits;
+                        totalMonthlyUnused += dr.financials.totalUnusedCredits;
+                    });
+
+                    // 3. Map cumulative totals
+                    monthlyReport.statistics.totalClaimed = totalMonthlyClaimed;
+                    monthlyReport.statistics.totalUnclaimed = totalMonthlyUnclaimed;
+                    monthlyReport.financials.totalUsedCredits = totalMonthlyUsed;
+                    monthlyReport.financials.totalUnusedCredits = totalMonthlyUnused;
+
+                    // 4. 🟢 THE FIX: Static metrics just take the latest day's known value
+                    monthlyReport.statistics.totalEligible = dailyReport.statistics.totalEligible;
+                    monthlyReport.financials.totalAllottedCredits = dailyReport.financials.totalAllottedCredits;
+
+                    await monthlyReport.save();
+                    console.log(`✅ COMPLETED: Updated MonthlyReport bucket for ${cleanDate.toLocaleDateString()}`);
+                }
+            }
         } else {
             console.log("ℹ️ No eligible students found to update.");
         }
@@ -143,58 +190,6 @@ const finalizeTodayRecord = async () => {
 // --------------------------
 // FOR DASHBOARD REPORT
 // --------------------------
-
-const initializeDailyReport = async (req, res, next) => {
-    try {
-        const targetDate = new Date();
-        const day = targetDate.getDate();
-        const month = targetDate.getMonth() + 1;
-        const year = targetDate.getFullYear();
-        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        const dayOfWeek = dayNames[targetDate.getDay()];
-
-        const existingReport = await Report.findOne({ day, month, year });
-
-        if (existingReport) {
-            return res.status(409).json({
-                message: `Daily Report for ${month}/${day}/${year} already exists.`,
-                data: existingReport
-            });
-        }
-
-        // 🟢 HANDLE DISH INPUT (Flexible)
-        let dishesArray = [];
-        if (req.body.dish1) dishesArray.push(req.body.dish1);
-        if (req.body.dish2) dishesArray.push(req.body.dish2);
-
-        const newReport = new Report({
-            day, month, year, dayOfWeek,
-            menu: {
-                dishes: dishesArray
-            }
-        });
-
-        await newReport.save();
-
-        const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
-        const actorName = req.user ? req.user.email : 'Admin';
-
-        await logAction({ id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
-            'CREATE_REPORT', 'SUCCESS',
-            { description: `Initialized Report for ${month}/${day}/${year}`, referenceID: newReport._id }
-        );
-
-        res.status(201).json({
-            success: true,
-            message: `Report initialized for ${dayOfWeek}`,
-            data: newReport
-        });
-
-    } catch (error) {
-        if (error.code === 11000) return res.status(409).json({ message: "Daily Report already exists." });
-        next(error);
-    }
-};
 
 const getManilaDateComponents = (dateString) => {
     const targetDate = dateString ? new Date(dateString) : new Date();
@@ -210,36 +205,113 @@ const getManilaDateComponents = (dateString) => {
     };
 };
 
-const initializeDailyReportLogic = async (customDate = null, customDishes = []) => {
+// =====================================================================
+// 🟢 REFACTORED: initializeDailyReport (Unified & Bucket-Ready)
+// =====================================================================
+const initializeDailyReport = async (req, res, next) => {
     try {
-        console.log("🔄 STARTING: Initializing Daily Report...");
+        const targetDate = req.body.date ? new Date(req.body.date) : new Date();
+        const { bucketMonth, academicYear, cleanDate, dayOfWeek } = getBucketDateInfo(targetDate);
 
-        // 1. Get Date Components
-        const { day, month, year, dayOfWeek } = getManilaDateComponents(customDate);
-
-        // 2. Check for Duplicate
-        const existingReport = await Report.findOne({ day, month, year });
-        if (existingReport) {
-            console.log(`ℹ️ Report for ${month}/${day}/${year} already exists.`);
-            return { success: false, message: "Report already exists", data: existingReport };
+        let monthlyReport = await MonthlyReport.findOne({ bucketMonth });
+        if (!monthlyReport) {
+            // 🟢 FIX: Initialize the root-level required schemas
+            monthlyReport = new MonthlyReport({
+                bucketMonth,
+                academicYear,
+                dailyReports: [],
+                statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+                financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 }
+            });
         }
 
-        // 3. Create New Report
-        const newReport = new Report({
-            day, month, year, dayOfWeek,
-            menu: { dishes: customDishes }
+        const dayExists = monthlyReport.dailyReports.some(dr => dr.date.getTime() === cleanDate.getTime());
+
+        if (dayExists) {
+            return res.status(409).json({
+                success: false,
+                message: `Daily Report for ${cleanDate.toLocaleDateString()} already exists.`,
+                data: monthlyReport
+            });
+        }
+
+        let dishesArray = [];
+        if (req.body.dish1) dishesArray.push(req.body.dish1);
+        if (req.body.dish2) dishesArray.push(req.body.dish2);
+
+        monthlyReport.dailyReports.push({
+            date: cleanDate,
+            dayOfWeek: dayOfWeek,
+            menu: dishesArray,
+            metrics: { tadmc: 0, cur: 0, ocf: 0 },
+            statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+            financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 }
         });
 
-        await newReport.save();
+        await monthlyReport.save();
+
+        const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
+        const actorName = req.user ? req.user.email : 'Admin';
+
+        await logAction({ id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
+            'CREATE_REPORT', 'SUCCESS',
+            { description: `Initialized Report for ${cleanDate.toLocaleDateString()}`, referenceID: monthlyReport._id }
+        );
+
+        res.status(201).json({
+            success: true,
+            message: `Report initialized for ${dayOfWeek}`,
+            data: monthlyReport
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+// =====================================================================
+// 🟢 REFACTORED: initializeDailyReportLogic 
+// =====================================================================
+const initializeDailyReportLogic = async (customDate = null, customDishes = []) => {
+    try {
+        console.log("🔄 STARTING: Initializing Daily Report into Monthly Bucket...");
+
+        const { bucketMonth, academicYear, cleanDate, dayOfWeek } = getBucketDateInfo(customDate);
+
+        let monthlyReport = await MonthlyReport.findOne({ bucketMonth });
+        if (!monthlyReport) {
+            console.log(`🆕 Creating new Monthly Bucket for ${bucketMonth}...`);
+            monthlyReport = new MonthlyReport({ bucketMonth, academicYear, dailyReports: [] });
+        }
+
+        // Check if the day is already in the array
+        const dayExists = monthlyReport.dailyReports.some(dr => dr.date.getTime() === cleanDate.getTime());
+
+        if (dayExists) {
+            console.log(`ℹ️ Report for ${cleanDate.toLocaleDateString()} already exists in bucket.`);
+            return { success: false, message: "Report already exists", data: monthlyReport };
+        }
+
+        // Push the new day
+        monthlyReport.dailyReports.push({
+            date: cleanDate,
+            dayOfWeek: dayOfWeek,
+            menu: customDishes,
+            metrics: { tadmc: 0, cur: 0, ocf: 0 },
+            statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+            financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 }
+        });
+
+        await monthlyReport.save();
 
         await logAction(
             { id: 'SYSTEM', type: 'System', name: 'Scheduler', role: 'SYSTEM' },
             'CREATE_REPORT', 'SUCCESS',
-            { description: `Auto-Initialized Report for ${dayOfWeek}, ${month}/${day}/${year}`, referenceID: newReport._id }
+            { description: `Auto-Initialized Report for ${dayOfWeek}, ${cleanDate.toLocaleDateString()}`, referenceID: monthlyReport._id }
         );
 
-        console.log(`✅ Report initialized for ${dayOfWeek}, ${month}/${day}/${year}`);
-        return { success: true, message: "Report initialized", data: newReport };
+        console.log(`✅ Report initialized for ${dayOfWeek}, ${cleanDate.toLocaleDateString()}`);
+        return { success: true, message: "Report initialized", data: monthlyReport };
 
     } catch (error) {
         console.error("❌ Error in initializeDailyReportLogic:", error);
@@ -264,110 +336,91 @@ const getWeekBounds = (referenceDate) => {
     return { start, end };
 };
 
-/**
- * Formats records for the Dashboard JSON structure (Charts, Trends, KPIs)
- */
-const formatSectionData = (label, records, kpiSettings) => {
-    // 1. Aggregation Variables
-    let totalClaimed = 0, totalUnclaimed = 0;
-    let prePacked = 0, customized = 0, unused = 0;
-    let totalTadmc = 0, totalCur = 0, totalOcf = 0;
-    const count = records.length;
+// =====================================================================
+// 🟢 REFACTORED: FORMATTERS
+// =====================================================================
 
-    // 2. Summation Loop
-    records.forEach(r => {
-        totalClaimed += (r.stats?.totalClaimed || 0);
-        totalUnclaimed += (r.stats?.totalUnclaimed || 0);
-        prePacked += (r.stats?.prePackedCount || 0);
-        customized += (r.stats?.customizedCount || 0);
-        unused += (r.stats?.unusedVoucherCount || 0);
+const formatSectionData = (label, dailyRecords, kpiSettings) => {
+    let totalClaimed = 0, totalUnclaimed = 0;
+    let snacks = 0, meals = 0, unused = 0;
+    let totalTadmc = 0, totalCur = 0, totalOcf = 0;
+    const count = dailyRecords.length;
+
+    dailyRecords.forEach(r => {
+        // Map to new 'statistics' subdocument
+        totalClaimed += (r.statistics?.totalClaimed || 0);
+        totalUnclaimed += (r.statistics?.totalUnclaimed || 0);
+
+        // Map new schema fields to frontend expectations
+        snacks += (r.statistics?.totalSnacksClaimed || 0);   // Replaces prePacked
+        meals += (r.statistics?.totalMealsClaimed || 0);     // Replaces customized
+        unused += (r.financials?.totalUnusedCredits || 0);   // Mapping unused credits to unused 
+
+        // Map to new 'metrics' subdocument
         totalTadmc += (r.metrics?.tadmc || 0);
         totalCur += (r.metrics?.cur || 0);
         totalOcf += (r.metrics?.ocf || 0);
     });
 
-    // 3. Pick sample for dish names
-    const sample = records[0] || {};
-    const sampleMenu = sample.menu || {};
-    const dishesDisplay = (sampleMenu.dishes && sampleMenu.dishes.length > 0)
-        ? sampleMenu.dishes.join(' / ')
-        : "N/A";
+    const sample = dailyRecords[0] || {};
+    const dishesDisplay = (sample.menu && sample.menu.length > 0) ? sample.menu.join(' / ') : "N/A";
 
-    // 4. Resolve KPI Ranges
     const ranges = kpiSettings || {
-        tadmc: { min: 58, max: 62 },
-        cur: { min: 90, max: 100 },
-        ocf: { min: 0, max: 15 }
+        tadmc: { min: 58, max: 62 }, cur: { min: 90, max: 100 }, ocf: { min: 0, max: 15 }
     };
 
-    // 🟢 CRITICAL FIX: Date Formatting to match "January 27, 2026"
-    // This ensures your React charts can map the data correctly.
-    const dateFormatted = sample.createdAt
-        ? new Date(sample.createdAt).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric'
-        })
+    const dateFormatted = sample.date
+        ? new Date(sample.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
         : "";
 
     return {
         barChart: {
-            dayOfWeek: label,
-            date: dateFormatted, // Uses long format now
-            dish: dishesDisplay,
-            Claimed: totalClaimed,
-            Unclaimed: totalUnclaimed
+            dayOfWeek: label, date: dateFormatted, dish: dishesDisplay,
+            Claimed: totalClaimed, Unclaimed: totalUnclaimed
         },
         trends: {
             dataSpan: label,
-            "Pre-packed Food": prePacked,
-            "Customized Order": customized,
+            "Pre-packed Food": snacks,
+            "Customized Order": meals,
             "Unused vouchers": unused
         },
-        tadmc: {
-            Day: label,
-            AcceptableRange: [ranges.tadmc.min, ranges.tadmc.max],
-            TADMC: count ? (totalTadmc / count) : 0
-        },
-        cur: {
-            Day: label,
-            AcceptableRange: [ranges.cur.min, ranges.cur.max],
-            TADMC: count ? (totalCur / count) : 0
-        },
-        ocf: {
-            Day: label,
-            AcceptableRange: [ranges.ocf.min, ranges.ocf.max],
-            TADMC: count ? (totalOcf / count) : 0
-        }
+        tadmc: { Day: label, AcceptableRange: [ranges.tadmc.min, ranges.tadmc.max], TADMC: count ? (totalTadmc / count) : 0 },
+        cur: { Day: label, AcceptableRange: [ranges.cur.min, ranges.cur.max], TADMC: count ? (totalCur / count) : 0 },
+        ocf: { Day: label, AcceptableRange: [ranges.ocf.min, ranges.ocf.max], TADMC: count ? (totalOcf / count) : 0 }
     };
 };
 
-/**
- * Formats records for the Financial Report JSON structure
- */
-const formatFinancialData = (label, records) => {
+const formatFinancialData = (label, dailyRecords) => {
     let allotted = 0, consumed = 0, unused = 0;
 
-    records.forEach(r => {
+    dailyRecords.forEach(r => {
         allotted += (r.financials?.totalAllottedCredits || 0);
-        consumed += (r.financials?.totalConsumedCredits || 0);
+        consumed += (r.financials?.totalUsedCredits || 0); // Note: updated to totalUsedCredits
         unused += (r.financials?.totalUnusedCredits || 0);
     });
 
     return {
         label: label,
-        date: records[0]?.createdAt ? new Date(records[0].createdAt).toLocaleDateString() : "",
-        allotted: allotted,
-        consumed: consumed,
-        unused: unused
+        date: dailyRecords[0]?.date ? new Date(dailyRecords[0].date).toLocaleDateString() : "",
+        allotted: allotted, consumed: consumed, unused: unused
     };
 };
 
 // =====================================================================
-// 1️⃣ MODULE: DAILY FETCHERS
+// 🟢 REFACTORED: DAILY & WEEKLY FETCHERS
 // =====================================================================
+
+// Helper pipeline to extract daily records within a date range
+const getDailyRecordsInRange = async (startDate, endDate) => {
+    return await MonthlyReport.aggregate([
+        { $unwind: "$dailyReports" },
+        { $match: { "dailyReports.date": { $gte: startDate, $lte: endDate } } },
+        { $sort: { "dailyReports.date": 1 } },
+        { $replaceRoot: { newRoot: "$dailyReports" } } // Flattens it so it looks exactly like the old daily Report schema
+    ]);
+};
+
 const getDailyData = async (anchorDate, kpiSettings) => {
-    // Range: Anchor minus 5 days (Total 6 days including today)
     const startDate = new Date(anchorDate);
     startDate.setDate(startDate.getDate() - 6);
     startDate.setHours(0, 0, 0, 0);
@@ -375,14 +428,11 @@ const getDailyData = async (anchorDate, kpiSettings) => {
     const endDate = new Date(anchorDate);
     endDate.setHours(23, 59, 59, 999);
 
-    const records = await Report.find({
-        createdAt: { $gte: startDate, $lte: endDate }
-    }).sort({ createdAt: 1 });
-
+    const records = await getDailyRecordsInRange(startDate, endDate);
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
 
     records.forEach(r => {
-        const dayLabel = new Date(r.createdAt).toLocaleDateString('en-US', { weekday: 'long' });
+        const dayLabel = new Date(r.date).toLocaleDateString('en-US', { weekday: 'long' });
         const dashData = formatSectionData(dayLabel, [r], kpiSettings);
 
         result.bar.push(dashData.barChart);
@@ -396,21 +446,15 @@ const getDailyData = async (anchorDate, kpiSettings) => {
     return result;
 };
 
-// =====================================================================
-// 2️⃣ MODULE: WEEKLY FETCHERS
-// =====================================================================
 const getWeeklyData = async (anchorDate, kpiSettings) => {
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
 
-    // 🟢 UPDATED: Loop 5 down to 0 (6 weeks total for better chart visualization)
     for (let i = 6; i >= 0; i--) {
         const refDate = new Date(anchorDate);
         refDate.setDate(refDate.getDate() - (i * 7));
         const { start, end } = getWeekBounds(refDate);
 
-        const records = await Report.find({
-            createdAt: { $gte: start, $lte: end }
-        });
+        const records = await getDailyRecordsInRange(start, end);
 
         const label = i === 0 ? "Current Week" : `${i} Week(s) Ago`;
         const dashData = formatSectionData(label, records, kpiSettings);
@@ -427,89 +471,10 @@ const getWeeklyData = async (anchorDate, kpiSettings) => {
 };
 
 // =====================================================================
-// 3️⃣ MODULE: MONTHLY FETCHERS
+// 3️⃣ MODULE: MONTHLY FETCHERS (Refactored for MonthlyReport Schema)
 // =====================================================================
 const getMonthlyData = async (anchorDate, kpiSettings) => {
     const result = { bar: [], trends: [], tadmc: [], cur: [], ocf: [], finance: [] };
-
-    // 🟢 UPDATED: Loop 5 down to 0 (6 months total)
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(anchorDate);
-        d.setMonth(d.getMonth() - i);
-
-        const targetMonth = d.getMonth() + 1;
-        const targetYear = d.getFullYear();
-        const monthName = d.toLocaleDateString('en-US', { month: 'long' });
-
-        const records = await Report.find({
-            month: targetMonth,
-            year: targetYear
-        });
-
-        const dashData = formatSectionData(monthName, records, kpiSettings);
-
-        result.bar.push(dashData.barChart);
-        result.trends.push(dashData.trends);
-        result.tadmc.push(dashData.tadmc);
-        result.cur.push(dashData.cur);
-        result.ocf.push(dashData.ocf);
-        result.finance.push(formatFinancialData(monthName, records));
-    }
-
-    return result;
-};
-
-// =====================================================================
-// 4️⃣ MODULE: OVERALL DATA (Rankings & KPI)
-// =====================================================================
-const getOverallData = async (kpiSettings) => {
-    // A. Top 3 Most Claimed
-    const topDays = await Report.find()
-        .sort({ "stats.totalClaimed": -1 })
-        .limit(3)
-        .select('createdAt menu stats');
-
-    const mostMealClaims = topDays.map((r, index) => {
-        const dishText = (r.menu?.dishes?.length) ? r.menu.dishes.join(' / ') : "N/A";
-        return {
-            title: ["Most", "Second Most", "Third Most"][index] + " Meal Claims",
-            value: dishText,
-            subtitle: `${r.stats.totalClaimed} claims on ${new Date(r.createdAt).toLocaleDateString()}`
-        };
-    });
-
-    // B. Bottom 3 Least Claimed
-    const bottomDays = await Report.find({ "stats.totalClaimed": { $gt: 0 } })
-        .sort({ "stats.totalClaimed": 1 })
-        .limit(3)
-        .select('createdAt menu stats');
-
-    const leastMealClaims = bottomDays.map((r, index) => {
-        const dishText = (r.menu?.dishes?.length) ? r.menu.dishes.join(' / ') : "N/A";
-        return {
-            title: ["Least", "Second Least", "Third Least"][index] + " Claimed Combination",
-            value: dishText,
-            subtitle: `${r.stats.totalClaimed} claims on ${new Date(r.createdAt).toLocaleDateString()}`
-        };
-    });
-
-    // C. Global Aggregates
-    const agg = await Report.aggregate([
-        {
-            $group: {
-                _id: null,
-                totalAllotted: { $sum: "$financials.totalAllottedCredits" },
-                totalConsumed: { $sum: "$financials.totalConsumedCredits" },
-                totalUnused: { $sum: "$financials.totalUnusedCredits" },
-                totalClaimedCount: { $sum: "$stats.totalClaimed" },
-                totalUnclaimedCount: { $sum: "$stats.totalUnclaimed" },
-                avgTadmc: { $avg: "$metrics.tadmc" },
-                avgCur: { $avg: "$metrics.cur" },
-                avgOcf: { $avg: "$metrics.ocf" }
-            }
-        }
-    ]);
-    const data = agg[0] || {};
 
     const ranges = kpiSettings || {
         tadmc: { min: 58, max: 62 },
@@ -517,7 +482,175 @@ const getOverallData = async (kpiSettings) => {
         ocf: { min: 0, max: 15 }
     };
 
-    const totalAllottedCredits = data.totalUnused + data.totalConsumed;
+    // 1. Generate the last 6 months "YYYY-MM" buckets
+    const monthsInfo = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(anchorDate);
+        d.setMonth(d.getMonth() - i);
+
+        // Pad month with 0 (e.g., "03" for March)
+        const monthNum = String(d.getMonth() + 1).padStart(2, '0');
+        const bucketMonth = `${d.getFullYear()}-${monthNum}`;
+        const label = d.toLocaleDateString('en-US', { month: 'long' });
+
+        monthsInfo.push({ bucketMonth, label, year: d.getFullYear() });
+    }
+
+    // 2. Fetch all 6 months in ONE single query!
+    const bucketNames = monthsInfo.map(m => m.bucketMonth);
+    const reports = await MonthlyReport.find({ bucketMonth: { $in: bucketNames } });
+
+    // 3. Map the data to the expected Frontend format
+    monthsInfo.forEach(info => {
+        // Find the report for this specific month (if it exists)
+        const report = reports.find(r => r.bucketMonth === info.bucketMonth);
+
+        // Fallback structures if the month has no data yet
+        let claimed = 0, unclaimed = 0;
+        let snacks = 0, meals = 0, unused = 0;
+        let allotted = 0, consumed = 0, unusedCredits = 0;
+        let tadmcVal = 0, curVal = 0, ocfVal = 0;
+
+        if (report) {
+            const stats = report.statistics;
+            const fins = report.financials;
+
+            claimed = stats.totalClaimed || 0;
+            unclaimed = stats.totalUnclaimed || 0;
+
+            // Map new schema fields to the old frontend 'trends' labels
+            snacks = stats.totalSnacksClaimed || 0;
+            meals = stats.totalMealsClaimed || 0;
+            unused = fins.totalUnusedCredits || 0;
+
+            allotted = fins.totalAllottedCredits || 0;
+            consumed = fins.totalUsedCredits || 0;
+            unusedCredits = fins.totalUnusedCredits || 0;
+
+            // Calculate Monthly Averages from the dailyReports array
+            if (report.dailyReports && report.dailyReports.length > 0) {
+                let t = 0, c = 0, o = 0;
+                report.dailyReports.forEach(dr => {
+                    t += dr.metrics?.tadmc || 0;
+                    c += dr.metrics?.cur || 0;
+                    o += dr.metrics?.ocf || 0;
+                });
+                const count = report.dailyReports.length;
+                tadmcVal = t / count;
+                curVal = c / count;
+                ocfVal = o / count;
+            }
+        }
+
+        const dateStr = `${info.label} ${info.year}`;
+
+        result.bar.push({
+            dayOfWeek: info.label, date: dateStr, dish: "Monthly Aggregated", Claimed: claimed, Unclaimed: unclaimed
+        });
+        result.trends.push({
+            dataSpan: info.label, "Pre-packed Food": snacks, "Customized Order": meals, "Unused vouchers": unused
+        });
+
+        // Note: The UI maps 'TADMC' as the value key for all three charts, so we keep that mapping
+        result.tadmc.push({ Day: info.label, AcceptableRange: [ranges.tadmc.min, ranges.tadmc.max], TADMC: tadmcVal });
+        result.cur.push({ Day: info.label, AcceptableRange: [ranges.cur.min, ranges.cur.max], TADMC: curVal });
+        result.ocf.push({ Day: info.label, AcceptableRange: [ranges.ocf.min, ranges.ocf.max], TADMC: ocfVal });
+
+        result.finance.push({
+            label: info.label, date: dateStr, allotted, consumed, unused: unusedCredits
+        });
+    });
+
+    return result;
+};
+
+// =====================================================================
+// 4️⃣ MODULE: OVERALL DATA (Rankings & KPI) - Refactored
+// =====================================================================
+const getOverallData = async (kpiSettings) => {
+
+    // Setup Pipeline to extract daily records out of the monthly buckets
+    const unwindPipeline = [
+        { $unwind: "$dailyReports" },
+        {
+            $project: {
+                date: "$dailyReports.date",
+                menu: "$dailyReports.menu",
+                totalClaimed: "$dailyReports.statistics.totalClaimed"
+            }
+        }
+    ];
+
+    // A. Top 3 Most Claimed Days
+    const topDays = await MonthlyReport.aggregate([
+        ...unwindPipeline,
+        { $sort: { totalClaimed: -1 } },
+        { $limit: 3 }
+    ]);
+
+    const mostMealClaims = topDays.map((r, index) => {
+        const dishText = (r.menu && r.menu.length) ? r.menu.join(' / ') : "N/A";
+        return {
+            title: ["Most", "Second Most", "Third Most"][index] + " Meal Claims",
+            value: dishText,
+            subtitle: `${r.totalClaimed} claims on ${new Date(r.date).toLocaleDateString()}`
+        };
+    });
+
+    // B. Bottom 3 Least Claimed Days
+    const bottomDays = await MonthlyReport.aggregate([
+        ...unwindPipeline,
+        { $match: { totalClaimed: { $gt: 0 } } },
+        { $sort: { totalClaimed: 1 } },
+        { $limit: 3 }
+    ]);
+
+    const leastMealClaims = bottomDays.map((r, index) => {
+        const dishText = (r.menu && r.menu.length) ? r.menu.join(' / ') : "N/A";
+        return {
+            title: ["Least", "Second Least", "Third Least"][index] + " Claimed Combination",
+            value: dishText,
+            subtitle: `${r.totalClaimed} claims on ${new Date(r.date).toLocaleDateString()}`
+        };
+    });
+
+    // C. Global Aggregates (Summing the top-level Monthly stats is incredibly fast)
+    const globalAgg = await MonthlyReport.aggregate([
+        {
+            $group: {
+                _id: null,
+                totalAllotted: { $sum: "$financials.totalAllottedCredits" },
+                totalConsumed: { $sum: "$financials.totalUsedCredits" },
+                totalUnused: { $sum: "$financials.totalUnusedCredits" },
+                totalClaimedCount: { $sum: "$statistics.totalClaimed" },
+                totalUnclaimedCount: { $sum: "$statistics.totalUnclaimed" }
+            }
+        }
+    ]);
+
+    // D. Global Metric Averages (We unwind just the metrics to get true historical averages)
+    const metricsAgg = await MonthlyReport.aggregate([
+        { $unwind: "$dailyReports" },
+        {
+            $group: {
+                _id: null,
+                avgTadmc: { $avg: "$dailyReports.metrics.tadmc" },
+                avgCur: { $avg: "$dailyReports.metrics.cur" },
+                avgOcf: { $avg: "$dailyReports.metrics.ocf" }
+            }
+        }
+    ]);
+
+    const data = globalAgg[0] || {};
+    const metricsData = metricsAgg[0] || {};
+
+    const ranges = kpiSettings || {
+        tadmc: { min: 58, max: 62 },
+        cur: { min: 90, max: 100 },
+        ocf: { min: 0, max: 15 }
+    };
+
+    const totalAllottedCredits = (data.totalUnused || 0) + (data.totalConsumed || 0);
 
     return {
         mostMealClaims,
@@ -529,19 +662,19 @@ const getOverallData = async (kpiSettings) => {
         KPIreports: [
             {
                 title: "Average OCF",
-                value: (data.avgOcf || 0).toFixed(2),
+                value: (metricsData.avgOcf || 0).toFixed(2),
                 isPercentage: true,
                 subtitle: `Overall (Target: ${ranges.ocf.min}-${ranges.ocf.max}%)`
             },
             {
                 title: "Average CUR",
-                value: (data.avgCur || 0).toFixed(2),
+                value: (metricsData.avgCur || 0).toFixed(2),
                 isPercentage: true,
                 subtitle: `Overall (Target: ${ranges.cur.min}-${ranges.cur.max}%)`
             },
             {
                 title: "Average TADMC",
-                value: (data.avgTadmc || 0).toFixed(2),
+                value: (metricsData.avgTadmc || 0).toFixed(2),
                 subtitle: `Overall (Target: ${ranges.tadmc.min}-${ranges.tadmc.max})`
             },
         ],
@@ -553,8 +686,10 @@ const getOverallData = async (kpiSettings) => {
     };
 };
 
+
+
 // =====================================================================
-// 🚀 MAIN CONTROLLER 1: DASHBOARD DATA
+// 🚀 REFACTORED: MAIN CONTROLLER 1: DASHBOARD DATA
 // =====================================================================
 const getDashboardData = async (req, res, next) => {
     try {
@@ -563,25 +698,30 @@ const getDashboardData = async (req, res, next) => {
 
         const kpiSettings = await KPIRange.findOne();
 
-        const { day, month, year } = getManilaDateComponents(anchorDate.toISOString());
+        // 🟢 Fetch today's exact record from the Monthly Bucket
+        const { bucketMonth, cleanDate } = getBucketDateInfo(anchorDate);
+        const currentBucket = await MonthlyReport.findOne({ bucketMonth });
 
-        const currentReport = await Report.findOne({ day, month, year });
+        const todayReport = currentBucket?.dailyReports.find(
+            dr => dr.date.getTime() === cleanDate.getTime()
+        );
 
-        const currentStats = currentReport ? currentReport.stats : {
+        // Map to your frontend's expected top-card layout
+        const currentStats = todayReport ? todayReport.statistics : {
             totalClaimed: 0, totalUnclaimed: 0,
-            prePackedCount: 0, customizedCount: 0, unusedVoucherCount: 0,
-            eligibleStudentCount: 0, absentStudentCount: 0, waivedStudentCount: 0
+            totalSnacksClaimed: 0, totalMealsClaimed: 0, // updated fields
+            totalEligible: 0, totalAbsences: 0, totalWaived: 0
         };
 
-        const currentFinancials = currentReport ? currentReport.financials : {
-            totalConsumedCredits: 0, totalUnusedCredits: 0, totalAlottedCtredits: 0
+        const currentFinancials = todayReport ? todayReport.financials : {
+            totalUsedCredits: 0, totalUnusedCredits: 0, totalAllottedCredits: 0, totalOnHandCash: 0
         };
 
         const [daily, weekly, monthly, overall] = await Promise.all([
             getDailyData(anchorDate, kpiSettings),
             getWeeklyData(anchorDate, kpiSettings),
-            getMonthlyData(anchorDate, kpiSettings),
-            getOverallData(kpiSettings)
+            getMonthlyData(anchorDate, kpiSettings), // Your newly optimized function!
+            getOverallData(kpiSettings)              // Your newly optimized function!
         ]);
 
         res.status(200).json({
@@ -607,7 +747,14 @@ const getDashboardData = async (req, res, next) => {
                 { OCFdata: monthly.ocf }
             ],
             overall: overall,
-            stats: currentStats,
+
+            // Note: We map the exact variable names your frontend expects here
+            stats: {
+                ...currentStats,
+                eligibleStudentCount: currentStats.totalEligible,
+                absentStudentCount: currentStats.totalAbsences,
+                waivedStudentCount: currentStats.totalWaived
+            },
             financials: currentFinancials
         });
 
@@ -617,7 +764,7 @@ const getDashboardData = async (req, res, next) => {
 };
 
 // =====================================================================
-// 🚀 MAIN CONTROLLER 2: FINANCIAL REPORT
+// 🚀 REFACTORED: MAIN CONTROLLER 2: FINANCIAL REPORT
 // =====================================================================
 const getFinancialReport = async (req, res, next) => {
     try {
@@ -627,7 +774,7 @@ const getFinancialReport = async (req, res, next) => {
         const [daily, weekly, monthly] = await Promise.all([
             getDailyData(anchorDate),
             getWeeklyData(anchorDate),
-            getMonthlyData(anchorDate)
+            getMonthlyData(anchorDate) // Now uses the ultra-fast monthly aggregate
         ]);
 
         res.status(200).json({
@@ -651,96 +798,103 @@ const getTargetDate = (dateString) => {
     };
 };
 
+// =====================================================================
+// 🟢 REFACTORED: addDishes (Upserting into the Bucket)
+// =====================================================================
+// =====================================================================
+// 🟢 REFACTORED: addDishes (With Root Schema Initialization)
+// =====================================================================
 const addDishes = async (req, res, next) => {
     try {
         const { dishes, date } = req.body;
 
-        // 1. Validation
         if (!dishes || !Array.isArray(dishes) || dishes.length === 0) {
             return res.status(400).json({ message: "Please provide an array of dishes (strings)." });
         }
 
-        // 2. Date Calculation
-        // We need the date object to calculate 'dayOfWeek' in case we need to create a new record
-        const dateObj = date ? new Date(date) : new Date();
-        const { day, month, year, formatted } = getTargetDate(date);
+        const { bucketMonth, academicYear, cleanDate, dayOfWeek } = getBucketDateInfo(date);
 
-        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        const dayOfWeek = dayNames[dateObj.getDay()];
+        // 1. Find the Monthly Bucket. If it doesn't exist, create it.
+        let monthlyReport = await MonthlyReport.findOne({ bucketMonth });
+        if (!monthlyReport) {
+            // 🟢 FIX: Initialize the root-level required schemas
+            monthlyReport = new MonthlyReport({
+                bucketMonth,
+                academicYear,
+                dailyReports: [],
+                statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+                financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 }
+            });
+        }
 
-        // 3. Upsert Operation (Update if exists, Insert if new)
-        const updatedReport = await Report.findOneAndUpdate(
-            { day, month, year }, // Search criteria
-            {
-                // A. Always add the new dishes (preventing duplicates in the array)
-                $addToSet: { "menu.dishes": { $each: dishes } },
-
-                // B. ONLY set these fields if we are inserting a NEW document
-                $setOnInsert: {
-                    dayOfWeek: dayOfWeek,
-                    stats: {
-                        totalClaimed: 0,
-                        totalUnclaimed: 0,
-                        prePackedCount: 0,
-                        customizedCount: 0,
-                        unusedVoucherCount: 0,
-                        eligibleStudentCount: 0,
-                        absentStudentCount: 0,
-                        waivedStudentCount: 0
-                    },
-                    financials: {
-                        totalConsumedCredits: 0,
-                        totalUnusedCredits: 0,
-                        totalAlottedCtredits: 0
-                    }
-                }
-            },
-            {
-                new: true,    // Return the modified document
-                upsert: true, // 🟢 Create the document if it doesn't exist
-                setDefaultsOnInsert: true
-            }
+        let dailyReportIndex = monthlyReport.dailyReports.findIndex(
+            dr => dr.date.getTime() === cleanDate.getTime()
         );
 
-        // 4. Log Action
+        let actionType = 'UPDATE_MENU';
+
+        if (dailyReportIndex === -1) {
+            actionType = 'CREATE_AND_UPDATE_MENU';
+            monthlyReport.dailyReports.push({
+                date: cleanDate,
+                dayOfWeek: dayOfWeek,
+                menu: dishes,
+                metrics: { tadmc: 0, cur: 0, ocf: 0 },
+                statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+                financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 }
+            });
+        } else {
+            const currentMenu = new Set(monthlyReport.dailyReports[dailyReportIndex].menu);
+            dishes.forEach(d => currentMenu.add(d));
+            monthlyReport.dailyReports[dailyReportIndex].menu = Array.from(currentMenu);
+        }
+
+        await monthlyReport.save();
+
         const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
         const actorName = req.user ? req.user.email : 'Admin';
-
-        // Determine if it was created or updated for the log message
-        // (If it was just created, the array length equals the input length)
-        const actionType = updatedReport.menu.dishes.length === dishes.length ? 'CREATE_AND_UPDATE_MENU' : 'UPDATE_MENU';
+        const formattedDateStr = cleanDate.toLocaleDateString();
 
         await logAction(
             { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
-            actionType,
-            'SUCCESS',
-            { description: `Added dishes: ${dishes.join(', ')} to ${formatted}`, referenceID: updatedReport._id }
+            actionType, 'SUCCESS',
+            { description: `Added dishes: ${dishes.join(', ')} to ${formattedDateStr}`, referenceID: monthlyReport._id }
         );
 
-        res.status(200).json({
-            message: "Menu updated successfully.",
-            data: updatedReport.menu.dishes
-        });
+        const updatedDailyReport = monthlyReport.dailyReports.find(dr => dr.date.getTime() === cleanDate.getTime());
+
+        res.status(200).json({ message: "Menu updated successfully.", data: updatedDailyReport.menu });
 
     } catch (error) {
         next(error);
     }
 };
 
+// =====================================================================
+// 🟢 REFACTORED: viewDishes (Fetching from the Bucket)
+// =====================================================================
 const viewDishes = async (req, res, next) => {
     try {
-        const { day, month, year, formatted } = getTargetDate(req.query.date);
+        const { bucketMonth, cleanDate } = getBucketDateInfo(req.query.date);
 
-        const report = await Report.findOne({ day, month, year }).select('menu dayOfWeek');
+        // Fetch just the bucket
+        const reportBucket = await MonthlyReport.findOne({ bucketMonth });
 
-        if (!report) {
-            return res.status(404).json({ message: `No report found for ${formatted}.` });
+        if (!reportBucket) {
+            return res.status(404).json({ message: `No report bucket found for ${bucketMonth}.` });
+        }
+
+        // Find the specific day inside the array
+        const dailyReport = reportBucket.dailyReports.find(dr => dr.date.getTime() === cleanDate.getTime());
+
+        if (!dailyReport) {
+            return res.status(404).json({ message: `No daily report found for ${cleanDate.toLocaleDateString()}.` });
         }
 
         res.status(200).json({
-            date: formatted,
-            dayOfWeek: report.dayOfWeek,
-            dishes: report.menu.dishes || []
+            date: cleanDate.toLocaleDateString(),
+            dayOfWeek: dailyReport.dayOfWeek,
+            dishes: dailyReport.menu || []
         });
 
     } catch (error) {

@@ -27,4 +27,7 @@ router.put('/editMealValue', adminController.editMealValue);
 //router for chceking meal value
 router.get('/checkMealCreditValue', adminController.checkMealCreditValue);
 
+//router for promoting students in bulk
+router.post('/promoteStudentsBulk', adminController.promoteStudentsBulk);
+
 module.exports = router;

@@ -14,4 +14,10 @@ router.get('/getAllUsers', usercontroller.getAllUsers);
 //New route for adding users using CSV
 router.post('/usingCSV', upload.single('user_information'), usercontroller.createUsersFromCSV)
 
+//New route for resetting user password
+router.put('/resetPassword', usercontroller.resetUserPassword)
+
+//New route for editing user name
+router.put('/editName', usercontroller.editName);
+
 module.exports = router;

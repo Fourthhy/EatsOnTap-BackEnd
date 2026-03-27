@@ -17,7 +17,7 @@ const settingSchema = new mongoose.Schema({
     endMinute: { type: Number, default: 0 },   
 
     // Duplicate Prevention
-    lastExecutedDate: { type: String, default: null } 
+    lastExecutedDate: { type: String, default: null }
     
 }, { timestamps: true });
 
