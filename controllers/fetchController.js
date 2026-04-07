@@ -15,9 +15,9 @@ import SectionProgram from "../models/sectionprogram.js"
 const getStudentDepartment = (yearStr, section, program) => {
     // 1. Higher Ed Check
     if (program) return "higherEducation";
-    
+
     // 2. Invalid Check (No program AND no section)
-    if (!section) return null; 
+    if (!section) return null;
 
     // 3. Basic Ed Bucket Sort
     const yearVal = parseInt(yearStr, 10);
@@ -26,8 +26,30 @@ const getStudentDepartment = (yearStr, section, program) => {
     if (yearVal >= 4 && yearVal <= 6) return "intermediate";
     if (yearVal >= 7 && yearVal <= 10) return "juniorHighSchool";
     if (yearVal >= 11 && yearVal <= 12) return "seniorHighSchool";
-    
+
     return "preschool"; // Fallback
+};
+
+const getPHDateRange = () => {
+    const now = new Date();
+
+    // 1. Get the current calendar date specifically in Manila time.
+    // Using 'en-CA' safely forces the output into a strict "YYYY-MM-DD" format.
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const manilaDateStr = formatter.format(now);
+
+    // 2. Construct the exact start and end of that specific Manila day.
+    // Appending +08:00 forces JavaScript to parse it as Philippine Time, 
+    // which it then correctly translates back into UTC for MongoDB to query.
+    const start = new Date(`${manilaDateStr}T00:00:00.000+08:00`);
+    const end = new Date(`${manilaDateStr}T23:59:59.999+08:00`);
+
+    return { start, end };
 };
 
 // =====================================================================
@@ -110,10 +132,10 @@ const getSchoolStructure = async (req, res, next) => {
         students.forEach(student => {
             // 🟢 The DRY Helper in action again!
             const deptKey = getStudentDepartment(student.year, student.section, student.program);
-            if (!deptKey) return; 
+            if (!deptKey) return;
 
             if (!departmentsMap[deptKey][student.year]) {
-                departmentsMap[deptKey][student.year] = new Set(); 
+                departmentsMap[deptKey][student.year] = new Set();
             }
 
             const entryName = deptKey === "higherEducation" ? student.program : student.section;
@@ -125,7 +147,7 @@ const getSchoolStructure = async (req, res, next) => {
             const levels = Object.keys(yearsObj).map(yearKey => {
                 return {
                     levelName: yearKey,
-                    sections: Array.from(yearsObj[yearKey]).sort() 
+                    sections: Array.from(yearsObj[yearKey]).sort()
                 };
             });
 
@@ -159,10 +181,10 @@ const getStudentClaimReports = async (req, res) => {
         students.forEach(student => {
             // 🟢 The DRY Helper saves the day a third time!
             const deptKey = getStudentDepartment(student.year, student.section, student.program);
-            if (!deptKey) return; 
+            if (!deptKey) return;
 
             if (!departmentsMap[deptKey][student.year]) departmentsMap[deptKey][student.year] = {};
-            
+
             const groupName = deptKey === "higherEducation" ? student.program : student.section;
             if (!departmentsMap[deptKey][student.year][groupName]) departmentsMap[deptKey][student.year][groupName] = [];
 
@@ -209,7 +231,7 @@ const getStudentClaimReports = async (req, res) => {
 const getAllBasicEducationMealRequest = async (req, res, next) => {
     try {
         // 🟢 Replaced 15 lines of manual UTC/Manila math with 1 line!
-        const { start, end } = getPHDateRange(); 
+        const { start, end } = getPHDateRange();
 
         const allBasicEducationMealRequest = await eligibilityBasicEd.find({
             timeStamp: { $gte: start, $lte: end }
@@ -224,7 +246,7 @@ const getAllBasicEducationMealRequest = async (req, res, next) => {
 const getAllHigherEducationMealRequest = async (req, res, next) => {
     try {
         // 🟢 Replaced manual UTC/Manila math with 1 line!
-        const { start, end } = getPHDateRange(); 
+        const { start, end } = getPHDateRange();
 
         const allHigherEducationMealRequest = await eligibilityHigherEd.find({
             timeStamp: { $gte: start, $lte: end }
@@ -263,7 +285,7 @@ const getAllClassAdvisers = async (req, res, next) => {
         const allClassAdvisers = await classAdviser.find();
         if (!allClassAdvisers || allClassAdvisers.length === 0) {
             // 🟢 CRASH BUG FIXED: Added missing 'return'
-            return res.status(404).json({ message: "There are no Class Advisers!" }); 
+            return res.status(404).json({ message: "There are no Class Advisers!" });
         }
         return res.status(200).json(allClassAdvisers);
     } catch (error) {
@@ -274,11 +296,11 @@ const getAllClassAdvisers = async (req, res, next) => {
 const getClassAdvisers = async (req, res, next) => {
     try {
         const advisers = await classAdviser.find({}).select('-email -password').lean(); // Note: Changed to lowercase 'classAdviser' assuming it matches your import
-        
+
         const formattedData = advisers.map(adviser => {
             const middle = adviser.middle_name ? ` ${adviser.middle_name}` : '';
             return {
-                _id: adviser._id, 
+                _id: adviser._id,
                 userID: adviser.userID,
                 name: `${adviser.honorific} ${adviser.first_name}${middle} ${adviser.last_name}`,
                 role: adviser.role,
@@ -326,7 +348,7 @@ const getStudentsWithProgramOnly = async (req, res, next) => {
 
         if (students.length === 0) {
             // 🟢 Added 'return' here as well just to be safe!
-            return res.status(404).json({ message: "No students found with only a Program defined." }); 
+            return res.status(404).json({ message: "No students found with only a Program defined." });
         }
 
         return res.status(200).json({

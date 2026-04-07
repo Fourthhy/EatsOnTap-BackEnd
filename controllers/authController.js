@@ -70,12 +70,48 @@ const resetPassword = async (req, res) => {
 
 // 🟢 ADMIN / STAFF LOGIN
 const loginUser = async (req, res) => {
-    const { email, password } = req.body;
+    // 🟢 1. Accept idToken from the frontend
+    const { email, password, idToken } = req.body;
 
     try {
-        const user = await User.findOne({ email });
+        let user = null;
+        let authSuccessful = false;
 
-        if (user && (await bcrypt.compare(password, user.password))) {
+        // ==========================================
+        // 🟢 AUTHENTICATION PHASE (Fork in the Road)
+        // ==========================================
+        if (idToken) {
+            // PATH A: Google Sign-In
+            const decodedToken = await admin.auth().verifyIdToken(idToken);
+            const googleEmail = decodedToken.email;
+
+            // Domain Check
+            // if (!googleEmail.endsWith('@laverdad.edu.ph')) {
+            //     return res.status(403).json({ message: "Unauthorized domain. Please use your La Verdad email." });
+            // }
+
+            // Find user and bypass the password check!
+            user = await User.findOne({ email: googleEmail });
+            if (user) {
+                authSuccessful = true;
+            }
+
+        } else if (email && password) {
+            // PATH B: Manual Email & Password
+            user = await User.findOne({ email });
+            
+            // Perform standard bcrypt check
+            if (user && (await bcrypt.compare(password, user.password))) {
+                authSuccessful = true;
+            }
+        } else {
+            return res.status(400).json({ message: "Provide either login credentials or a Google token." });
+        }
+
+        // ==========================================
+        // 🔵 SESSION & AUTHORIZATION PHASE (Converge)
+        // ==========================================
+        if (authSuccessful && user) {
             
             // 🛡️ SECURITY FIX: Force-resetting stale session
             if (user.isActive) {
@@ -88,10 +124,11 @@ const loginUser = async (req, res) => {
             user.isActive = true;
             await user.save();
 
+            // Note: I added a small check to log if they used Google or a Manual login
             await logAction(
                 { id: user._id, type: 'User', name: user.email, role: user.role },
                 'LOGIN', 'SUCCESS',
-                { ipAddress: req.ip, description: `User ${user.userID} logged in (Fresh Session)` }
+                { ipAddress: req.ip, description: `User ${user.userID} logged in (Fresh Session${idToken ? ' via Google' : ''})` }
             );
 
             const io = req.app.get('socketio');
@@ -116,13 +153,20 @@ const loginUser = async (req, res) => {
             });
         } else {
             await logAction(
-                { id: null, type: 'User', name: email, role: 'UNKNOWN' },
+                { id: null, type: 'User', name: email || 'Unknown Google User', role: 'UNKNOWN' },
                 'LOGIN', 'FAILED',
-                { ipAddress: req.ip, description: "Invalid password attempt" }
+                { ipAddress: req.ip, description: "Invalid credentials or unregistered Google account" }
             );
             res.status(401).json({ message: "Invalid email or password" });
         }
     } catch (error) {
+        console.error("Login Error:", error);
+        
+        // Handle expired Firebase tokens specifically
+        if (error.code === 'auth/id-token-expired') {
+            return res.status(401).json({ message: "Google session expired. Please try logging in again." });
+        }
+
         res.status(500).json({ message: error.message });
     }
 };
