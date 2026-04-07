@@ -7,6 +7,7 @@ dotenv.config();
 try {
     if (!admin.apps.length) {
         // 1. Parse the single-line JSON string from the .env file back into a JavaScript object
+        // const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
         // 2. Pass the whole object directly to Firebase
