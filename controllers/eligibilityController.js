@@ -310,7 +310,7 @@ const claimStatusResetLogic = async () => {
             {},
             {
                 $set: {
-                    temporaryClaimStatus: "ELIGIBLE",
+                    temporaryClaimStatus: "INELIGBLE",
                     temporaryCreditBalance: valueToAssign
                 }
             }

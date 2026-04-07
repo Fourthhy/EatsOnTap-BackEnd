@@ -12,11 +12,60 @@ const createDefaultSetting = async (req, res, next) => {
         }
 
         const defaultSettings = [
+            //MIDNIGHT TRIGGER SETTINGS
+            {
+                setting: 'UPDATE-EVENTS',
+                description: 'Update of events.',
+                isActive: false,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 0,
+                endMinute: 0
+            },
+            {
+                setting: 'CHECK-MONTHLY-REPORT',
+                description: 'Checking Monthly Report.',
+                isActive: false,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 0,
+                endMinute: 0
+            },
+            {
+                setting: 'MORNING-SETUP',
+                description: 'Checking Daily Report.',
+                isActive: false,
+                startHour: 0,
+                startMinute: 0,
+                endHour: 0,
+                endMinute: 0
+            },
+            //DAYLIGHT TRIGGER SETTINGS
+            {
+                setting: 'ASSIGN-CREDITS',
+                description: 'Time trigger to assign credits to students.',
+                isActive: false,
+                startHour: 8,    // 8:30 AM
+                startMinute: 30,
+                endHour: 8,
+                endMinute: 30
+            },
+            //END OF DAY TRIGGER SETTINGS
+            {
+                setting: 'END-OF-DAY-SWEEP',
+                description: 'Executes at the end of the day.',
+                isActive: false,
+                startHour: 15,
+                startMinute: 0,
+                endHour: 15,
+                endMinute: 10
+            },
+            //SPAN SETTINGS
             {
                 setting: 'STUDENT-CLAIM',
                 description: 'Controls the time window for students to claim meals.',
                 isActive: false, // Default state is OFF until the schedule opens it
-                startHour: 10,   // 10:00 AM
+                startHour: 9,   // 10:00 AM
                 startMinute: 0,
                 endHour: 15,     // 3:00 PM
                 endMinute: 0
@@ -27,23 +76,9 @@ const createDefaultSetting = async (req, res, next) => {
                 isActive: false,
                 startHour: 6,    // 6:00 AM
                 startMinute: 0,
-                endHour: 7,      // 7:30 AM (handled by logic)
+                endHour: 7,
                 endMinute: 30
             },
-            {
-                setting: 'ASSIGN-CREDITS',
-                description: 'Time trigger to assign credits to students.',
-                isActive: false,
-                startHour: 9,    // 9:00 AM
-                startMinute: 0,
-            },
-            {
-                setting: 'REMOVE-CREDITS',
-                description: 'Time trigger to reset daily credits.',
-                isActive: false,
-                startHour: 15,
-                startMinute: 0,
-            }
         ];
 
         const newSettings = await Setting.insertMany(defaultSettings);

@@ -21,4 +21,7 @@ router.post('/resetPassword', authController.resetPassword);
 //after email onboard
 router.post('/resetToDefaultPassword', authController.resetToDefaultPassword);
 
+//google auth route
+router.post('/googleFirebaseLogin', authController.googleFirebaseLogin);
+
 module.exports = router;

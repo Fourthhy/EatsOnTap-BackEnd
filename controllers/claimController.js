@@ -499,119 +499,7 @@ const deductCredits = async (req, res, next) => {
  * Reclaims credits from students who didn't eat, updates the POS masterlist, 
  * and pushes "Unclaimed" stats to the dashboard.
  */
-const sweepUnclaimedCredits = async (req, res, next) => {
-    try {
-        console.log("🧹 Starting End-of-Day Sweep for Unclaimed Credits...");
 
-        // 1. Enforce Strict Manila Time for the sweep boundaries
-        const now = new Date();
-        const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
-        const manilaDate = new Date(manilaTimeStr);
-
-        const startOfDay = new Date(manilaDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(manilaDate);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        // 2. Find ALL students who are STILL "ELIGIBLE" at the end of the day
-        const missedStudents = await Student.find({ temporaryClaimStatus: "ELIGIBLE" });
-
-        if (missedStudents.length === 0) {
-            console.log("✅ Sweep complete: No unclaimed meals today!");
-            // If called via API, return response. If called via Pulse, just return the object.
-            if (res) return res.status(200).json({ message: "No unclaimed meals today." });
-            return { sweptCount: 0, reclaimedCredits: 0 };
-        }
-
-        // 3. Aggregate the data for bulk updates
-        const missedCount = missedStudents.length;
-        let totalReclaimedCredits = 0;
-        const studentIDsToUpdate = [];
-
-        missedStudents.forEach(student => {
-            totalReclaimedCredits += student.temporaryCreditBalance;
-            studentIDsToUpdate.push(student.studentID);
-        });
-
-        // =========================================================
-        // 🟢 4. BULK UPDATE 1: Student Profiles (Lightning Fast)
-        // =========================================================
-        await Student.updateMany(
-            { studentID: { $in: studentIDsToUpdate } },
-            {
-                $set: {
-                    temporaryClaimStatus: "INELIGIBLE",
-                    temporaryCreditBalance: 0
-                }
-            }
-        );
-
-        // =========================================================
-        // 🟢 5. BULK UPDATE 2: Cafeteria Masterlist (ClaimRecord)
-        // =========================================================
-        const dailyRecord = await ClaimRecord.findOne({
-            claimDate: { $gte: startOfDay, $lte: endOfDay }
-        });
-
-        if (dailyRecord) {
-            let recordModified = false;
-            dailyRecord.claimRecords.forEach(section => {
-                section.eligibleStudents.forEach(student => {
-                    // Only change them if they are still marked as ELIGIBLE
-                    if (student.claimType === "ELIGIBLE") {
-                        student.claimType = "UNCLAIMED";
-                        student.creditBalance = 0;
-                        recordModified = true;
-                    }
-                });
-            });
-            if (recordModified) await dailyRecord.save();
-        }
-
-        // =========================================================
-        // 🟢 6. BULK UPDATE 3: Monthly Dashboard Analytics
-        // =========================================================
-        const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
-
-        const reportUpdate = await MonthlyReport.findOneAndUpdate(
-            { bucketMonth },
-            {
-                $inc: {
-                    // Add to the "Unclaimed" stats
-                    "statistics.totalUnclaimed": missedCount,
-                    "dailyReports.$[todayRecord].statistics.totalUnclaimed": missedCount
-                }
-            },
-            {
-                new: true,
-                arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
-            }
-        );
-
-        if (!reportUpdate) console.warn(`⚠️ Dashboard Analytics missing for ${bucketMonth} during sweep.`);
-
-        // 7. System Logging (Optional but recommended)
-        await logAction(
-            { id: "SYSTEM", type: "System", name: "PulseCron", role: "ADMIN" },
-            'SWEEP_CREDITS',
-            'SUCCESS',
-            { description: `Reclaimed ₱${totalReclaimedCredits} from ${missedCount} students.` }
-        );
-
-        console.log(`✅ Sweep complete: Wiped balances for ${missedCount} students. Reclaimed ₱${totalReclaimedCredits}.`);
-
-        // Support both Express Route (req, res) AND direct function call (System Pulse)
-        if (res) {
-            return res.status(200).json({ sweptCount: missedCount, reclaimedCredits: totalReclaimedCredits });
-        }
-        return { sweptCount: missedCount, reclaimedCredits: totalReclaimedCredits };
-
-    } catch (error) {
-        console.error("❌ Error during End-of-Day Sweep:", error);
-        if (next) next(error);
-        throw error;
-    }
-};
 
 const assignCreditsForEvents = async () => {
     const now = new Date();
@@ -904,7 +792,6 @@ export {
     claimMeal,
     claimFood,
     deductCredits,
-    sweepUnclaimedCredits,
     assignCreditsForEvents,
     fakeMealClaim,
     fakeFoodItemClaim,

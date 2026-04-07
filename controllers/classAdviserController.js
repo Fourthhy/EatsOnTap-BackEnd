@@ -139,7 +139,9 @@ const addClassAdviser = async (req, res, next) => {
             middle_name, 
             last_name, 
             section, 
-            role 
+            role,
+            email,           // 🟢 NEW: Capture the email from the frontend
+            isGoogleAuth     // 🟢 NEW: Capture the Google Auth flag
         } = req.body;
 
         // 1. Validation
@@ -147,11 +149,16 @@ const addClassAdviser = async (req, res, next) => {
             return res.status(400).json({ message: "Missing required fields (ID, Name, or Honorific)." });
         }
 
-        // 2. GENERATE EMAIL
-        // Format: firstname + lastname + @laverdad.edu.ph (No spaces, Lowercase)
-        const cleanFirst = first_name.replace(/\s+/g, '').toLowerCase();
-        const cleanLast = last_name.replace(/\s+/g, '').toLowerCase();
-        const generatedEmail = `${cleanFirst}${cleanLast}@laverdad.edu.ph`;
+        // 🟢 2. DETERMINE EMAIL (CRITICAL FOR GOOGLE AUTH)
+        // If the admin typed an exact email, use it. Otherwise, auto-generate.
+        let finalEmail;
+        if (email) {
+            finalEmail = email.toLowerCase().trim();
+        } else {
+            const cleanFirst = first_name.replace(/\s+/g, '').toLowerCase();
+            const cleanLast = last_name.replace(/\s+/g, '').toLowerCase();
+            finalEmail = `${cleanFirst}${cleanLast}@laverdad.edu.ph`;
+        }
 
         // 3. GENERATE PASSWORD
         // Logic: 'EatsOnTapClassAdviser' + (Current Count + 1)
@@ -161,12 +168,12 @@ const addClassAdviser = async (req, res, next) => {
 
         // 4. Check for Duplicates (UserID or Email)
         const existingAdviser = await ClassAdviser.findOne({ 
-            $or: [{ userID: userID }, { email: generatedEmail }] 
+            $or: [{ userID: userID }, { email: finalEmail }] 
         });
 
         if (existingAdviser) {
             return res.status(409).json({ 
-                message: `Duplicate detected. User ID '${userID}' or Email '${generatedEmail}' already exists.` 
+                message: `Duplicate detected. User ID '${userID}' or Email '${finalEmail}' already exists.` 
             });
         }
 
@@ -182,33 +189,33 @@ const addClassAdviser = async (req, res, next) => {
             middle_name,
             last_name,
             section: section || undefined,
-            email: generatedEmail,
+            email: finalEmail,
             password: hashedPassword,
             role: role || 'CLASS-ADVISER',
             isActive: false, 
-            // 🟢 UPDATE: Force them to change this auto-generated password
-            isRequiredChangePassword: true 
+            // 🟢 UPDATE: If using Google, they don't need to change their local password!
+            isRequiredChangePassword: isGoogleAuth ? false : true 
         });
 
         await newAdviser.save();
 
-        // 🟢 7. SYSTEM LOG: Create Adviser
-        // We log who created this account (likely an Admin)
+        // 7. SYSTEM LOG: Create Adviser
         const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
         const actorName = req.user ? req.user.email : 'System Admin';
 
         await logAction(
             { 
                 id: actorID, 
-                type: 'User', // Admin is usually a 'User' type
+                type: 'User', 
                 name: actorName, 
                 role: 'ADMIN' 
             },
-            'SUCCESS', // Or specific action 'CREATE_ADVISER'
+            'CREATE_ADVISER', // 🟢 Made the action more specific
             'SUCCESS',
             { 
                 description: `Created Class Adviser account: ${userID} (${section || 'No Section'})`,
-                generatedEmail: generatedEmail
+                generatedEmail: finalEmail,
+                isGoogleAuth: isGoogleAuth || false // 🟢 Log if they are a Google user
             }
         );
 
@@ -219,8 +226,8 @@ const addClassAdviser = async (req, res, next) => {
                 name: `${newAdviser.first_name} ${newAdviser.last_name}`,
                 email: newAdviser.email,
                 section: newAdviser.section,
-                // Return initial password so Admin can share it with the Adviser
-                initialPassword: generatedPassword 
+                // 🟢 UPDATE: Don't show a dummy password to the Admin if it's a Google Account
+                initialPassword: isGoogleAuth ? 'N/A (Google Authentication)' : generatedPassword 
             }
         });
 

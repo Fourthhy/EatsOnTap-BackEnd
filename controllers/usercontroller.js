@@ -23,12 +23,24 @@ const getAllUsers = async (req, res, next) => {
 //Add a new user
 const addUser = async (req, res, next) => {
     try {
-        // 🟢 1. Destructure ALL relevant fields from the body
-        const { userID, email, password, role, first_name, middle_name, last_name } = req.body;
+        // 🟢 1. Destructure ALL relevant fields from the body, including isGoogleAuth
+        const { 
+            userID, 
+            email, 
+            password, 
+            role, 
+            first_name, 
+            middle_name, 
+            last_name,
+            isGoogleAuth // 🟢 NEW: Capture the Google Auth flag
+        } = req.body;
 
-        // 🟢 2. Enhanced Duplicate Check (Check ID AND Email)
+        // 🟢 2. Format Email (Critical for Google Auth matching)
+        const finalEmail = email ? email.toLowerCase().trim() : '';
+
+        // 🟢 3. Enhanced Duplicate Check (Check ID AND Email)
         const existingUser = await User.findOne({
-            $or: [{ userID }, { email }]
+            $or: [{ userID }, { email: finalEmail }]
         });
 
         if (existingUser) {
@@ -36,38 +48,49 @@ const addUser = async (req, res, next) => {
             return res.status(409).json({ message: `${field} already exists.` });
         }
 
-        // 3. Hash Password
-        const saltRounds = 10;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        // 🟢 4. Handle Password Logic
+        let passwordToHash = password;
+        if (isGoogleAuth) {
+            // Give Google Auth users a random, unguessable dummy password
+            passwordToHash = `GoogleAuth_${Math.random().toString(36).slice(-10)}!`;
+        } else if (!password) {
+            return res.status(400).json({ message: "Password is required for standard accounts." });
+        }
 
-        // 🟢 4. Initialize User with ALL model fields
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(passwordToHash, saltRounds);
+
+        // 🟢 5. Initialize User with ALL model fields
         const newUser = new User({
             userID,
             first_name,
             middle_name,
             last_name,
-            email,
+            email: finalEmail,
             password: hashedPassword,
             role,
             isActive: false, // Default from model
-            isRequiredChangePassowrd: true // Usually true for new accounts so they change it
+            // 🟢 UPDATE: Fixed typo from original code and applied Google Auth logic
+            isRequiredChangePassword: isGoogleAuth ? false : true 
         });
 
         await newUser.save();
 
-        // 🟢 5. SYSTEM LOG: Record that an account was created
-        // Assuming the person performing this action is an ADMIN (req.user)
-        const creator = req.user ? { id: req.user._id, type: 'User', name: req.user.email, role: req.user.role }
-            : { id: newUser._id, type: 'User', name: 'System', role: 'ADMIN' };
+        // 🟢 6. SYSTEM LOG: Record that an account was created
+        const creatorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
+        const creatorName = req.user ? req.user.email : 'System Admin';
 
         await logAction(
-            creator,
-            'SUCCESS', // or create a custom action like 'CREATE_USER'
+            { id: creatorID, type: 'User', name: creatorName, role: 'ADMIN' },
+            'CREATE_USER', // Made action more specific
             'SUCCESS',
-            { description: `Created new ${role} account: ${userID}` }
+            { 
+                description: `Created new ${role} account: ${userID}`,
+                isGoogleAuth: isGoogleAuth || false 
+            }
         );
 
-        // 6. Response (Hide password)
+        // 7. Response (Hide password)
         const { password: userPassword, ...userInfo } = newUser._doc;
         res.status(201).json(userInfo);
 

@@ -55,7 +55,7 @@ const getBucketDateInfo = (dateString = null) => {
 // =========================================================
 // 1. INITIALIZE RECORD (Runs at Start of Day / Submission)
 // =========================================================
-const initializeTodayRecord = async () => {
+const initializeDailyStudentRecord = async () => {
     try {
         console.log("🔄 STARTING: Initializing Daily Student Records...");
         const { start, end } = getPHDateRange();
@@ -127,7 +127,18 @@ const finalizeTodayRecord = async () => {
                 todayUnclaimed++;
             }
 
-            // ... (Add to bulkOps exactly as you have it) ...
+            bulkOps.push({
+                updateOne: {
+                    filter: { studentID: student.studentID },
+                    update: {
+                        $set: {
+                            // Reset them for tomorrow
+                            temporaryClaimStatus: "INELIGIBLE",
+                            temporaryCreditBalance: 0
+                        }
+                    }
+                }
+            });
         }
 
         // E. Execute Bulk Write for Students
@@ -904,7 +915,7 @@ const viewDishes = async (req, res, next) => {
 
 
 export {
-    initializeTodayRecord,
+    initializeDailyStudentRecord,
     finalizeTodayRecord,
 
     initializeDailyReport,

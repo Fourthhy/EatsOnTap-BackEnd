@@ -165,7 +165,7 @@ const editProgramSchedule = async (req, res, next) => {
 /**
  * @desc Automatically assigns ELIGIBLE status, credits, and analytics for Higher Ed students.
  */
-const automateHigherEdEligibility = async () => {
+const higherEdStudentManagement = async () => {
     try {
         console.log("⚙️ Starting Higher Ed Daily Automation...");
 
@@ -295,5 +295,5 @@ export {
     viewProgramSchedule,
     viewAllProgramSchedule,
     editProgramSchedule,
-    automateHigherEdEligibility
+    higherEdStudentManagement
 };

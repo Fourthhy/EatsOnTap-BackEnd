@@ -1,10 +1,14 @@
+import admin from '../config/firebaseAdmin.js'; 
 import User from "../models/user.js";
 import classAdviser from "../models/classAdviser.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import sendEmail from "../utils/email.js";
-import { logAction } from "./systemLoggerController.js"
+import { logAction } from "./systemLoggerController.js";
+
+// 🟢 NEW: Import your Firebase Admin configuration
+
 
 const generateToken = (user) => {
     return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
@@ -73,8 +77,7 @@ const loginUser = async (req, res) => {
 
         if (user && (await bcrypt.compare(password, user.password))) {
             
-            // 🛡️ SECURITY FIX: If user is already active, force them to inactive 
-            // This prevents stale tokens from previous sessions (like clicking 'Back' after login)
+            // 🛡️ SECURITY FIX: Force-resetting stale session
             if (user.isActive) {
                 console.log(`⚠️ Force-resetting stale session for User: ${user.email}`);
                 user.isActive = false;
@@ -176,6 +179,100 @@ const loginClassAdviser = async (req, res) => {
     }
 };
 
+// 🟢 NEW: GOOGLE FIREBASE LOGIN
+const googleFirebaseLogin = async (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ message: "No token provided" });
+        }
+
+        // 1. Verify the token with Firebase Admin
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        
+        // 2. Extract user info
+        const { email, name, picture, uid } = decodedToken;
+        const [firstName, ...lastNameArr] = name ? name.split(' ') : ['Unknown', ''];
+        const lastName = lastNameArr.join(' ');
+
+        // 3. Find the user (Check User collection first, then ClassAdviser)
+        let user = await User.findOne({ email });
+        let userModelType = 'User';
+
+        if (!user) {
+            user = await classAdviser.findOne({ email });
+            if (user) userModelType = 'ClassAdviser';
+        }
+
+        // 4. Create new user if they don't exist at all
+        if (!user) {
+            user = new User({
+                email: email,
+                first_name: firstName,
+                last_name: lastName || '',
+                profilePicture: picture,
+                firebaseUid: uid,
+                role: 'STUDENT', // Default assigned role
+                isActive: false
+            });
+            await user.save();
+            userModelType = 'User';
+        }
+
+        // 5. 🛡️ SECURITY FIX: Force-reset stale session
+        if (user.isActive) {
+            console.log(`⚠️ Force-resetting stale session for Google Auth User: ${user.email}`);
+            user.isActive = false;
+            await user.save();
+        }
+
+        user.isActive = true;
+        await user.save();
+
+        // 6. Log the Action
+        await logAction(
+            { id: user._id, type: userModelType, name: user.email, role: user.role },
+            'LOGIN_GOOGLE', 'SUCCESS',
+            { ipAddress: req.ip, description: `${userModelType} ${user.email} logged in via Google` }
+        );
+
+        // 7. Emit Socket update
+        const io = req.app.get('socketio');
+        if (io) io.emit("update-user-activity", { userID: user.userID || user._id, isActive: true, role: user.role });
+
+        // 8. Generate standard JWT & Set Cookie
+        const appToken = generateToken(user);
+        res.cookie('token', appToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000
+        });
+
+        // 9. Send response back to React
+        return res.status(200).json({
+            userID: user.userID || user._id,
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            role: user.role,
+            token: appToken,
+            isActive: true,
+            profilePicture: picture
+        });
+
+    } catch (error) {
+        console.error("Firebase Verification Error:", error);
+        await logAction(
+            { id: null, type: 'Unknown', name: 'Unknown', role: 'UNKNOWN' },
+            'LOGIN_GOOGLE', 'FAILED',
+            { ipAddress: req.ip, description: "Invalid or expired Google token attempt" }
+        );
+        return res.status(401).json({ message: "Unauthorized: Invalid Google Token" });
+    }
+};
+
 const logoutUser = async (req, res) => {
     try {
         const token = req.cookies.token;
@@ -259,6 +356,7 @@ export {
     logoutUser,
     loginClassAdviser,
     logoutClassAdviser,
+    googleFirebaseLogin, // 🟢 Added to exports!
     resetPassword,
     resetToDefaultPassword
 }

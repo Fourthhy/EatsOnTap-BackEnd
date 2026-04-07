@@ -1,11 +1,10 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const settingSchema = new mongoose.Schema({
     setting: { type: String, required: true, unique: true }, 
     description: { type: String },
     
     // STATE TRACKER
-    // true = Feature is currently ON, false = Feature is OFF
     isActive: { type: Boolean, default: false }, 
 
     // Auto-Open Configuration
@@ -17,8 +16,16 @@ const settingSchema = new mongoose.Schema({
     endMinute: { type: Number, default: 0 },   
 
     // Duplicate Prevention
-    lastExecutedDate: { type: String, default: null }
+    lastExecutedDate: { type: String, default: null },
+
+    suspendedDates: {
+        type: [{
+            date: { type: String, required: true }, // Required ONLY if adding a suspension
+            reason: { type: String, required: true } // Required ONLY if adding a suspension
+        }],
+        default: [] // 🟢 Defaults to empty, meaning no suspensions by default!
+    }
     
 }, { timestamps: true });
 
-module.exports = mongoose.model('Setting', settingSchema);
+export default mongoose.model('Setting', settingSchema);
