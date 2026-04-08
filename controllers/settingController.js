@@ -1,4 +1,5 @@
 import Setting from "../models/setting.js";
+import moment from "moment-timezone";
 
 // 1. Initialize Defaults (Run this once)
 const createDefaultSetting = async (req, res, next) => {
@@ -79,6 +80,15 @@ const createDefaultSetting = async (req, res, next) => {
                 endHour: 7,
                 endMinute: 30
             },
+            {
+                setting: 'MASTER-SETTING',
+                description: 'Master setting that controls the activness of the rest of the settings',
+                isActive: false,
+                startHour: 6,
+                startMinute: 0,
+                endHour: 7,
+                endMinute: 30
+            }
         ];
 
         const newSettings = await Setting.insertMany(defaultSettings);
@@ -256,6 +266,127 @@ const addSetting = async (req, res, next) => {
     }
 };
 
+/**
+ * @desc   Suspends operations for a given date range
+ * @route  POST /api/settings/suspend
+ */
+const suspendOperations = async (req, res, next) => {
+    try {
+        const { startDate, endDate, reason } = req.body;
+
+        if (!startDate || !endDate || !reason) {
+            return res.status(400).json({ message: "Start date, end date, and reason are required." });
+        }
+
+        const start = moment.tz(startDate, "YYYY-MM-DD", "Asia/Manila");
+        const end = moment.tz(endDate, "YYYY-MM-DD", "Asia/Manila");
+
+        if (start.isAfter(end)) {
+            return res.status(400).json({ message: "Start date cannot be after the end date." });
+        }
+
+        // 1. Generate an array of every single date in the range
+        const newSuspensions = [];
+        const dateStringsToRemove = []; // Used to prevent duplicates
+        let current = start.clone();
+
+        while (current.isSameOrBefore(end)) {
+            const dateStr = current.format("YYYY-MM-DD");
+            newSuspensions.push({ date: dateStr, reason: reason });
+            dateStringsToRemove.push(dateStr);
+
+            current.add(1, 'days');
+        }
+
+        // 2. Prevent Duplicates: Pull these dates if they already exist, then Push the new ones
+        await Setting.updateMany(
+            {},
+            { $pull: { suspendedDates: { date: { $in: dateStringsToRemove } } } }
+        );
+
+        await Setting.updateMany(
+            {},
+            { $push: { suspendedDates: { $each: newSuspensions } } }
+        );
+
+        // 3. Immediate Kill Switch Check
+        // If the admin schedules a suspension that includes TODAY, we must instantly 
+        // shut down any currently active operational windows.
+        const todayStr = moment().tz("Asia/Manila").format("YYYY-MM-DD");
+        const suspendsToday = dateStringsToRemove.includes(todayStr);
+
+        if (suspendsToday) {
+            await Setting.updateMany(
+                { setting: { $in: ['STUDENT-CLAIM', 'SUBMIT-MEAL-REQUEST'] } },
+                { $set: { isActive: false } }
+            );
+            console.log(`[KILL SWITCH] Manual suspension activated for today. All windows forced closed.`);
+        }
+
+        return res.status(200).json({
+            message: `Operations suspended successfully for ${newSuspensions.length} day(s).`
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc   Force resumes operations by clearing active/future suspensions
+ * @route  POST /api/settings/resume
+ */
+const resumeOperations = async (req, res, next) => {
+    try {
+        // We only want to delete suspensions from TODAY onwards. 
+        // Past suspensions stay in the database for historical record-keeping.
+        const todayStr = moment().tz("Asia/Manila").format("YYYY-MM-DD");
+
+        // Remove any suspended date that is greater than or equal to today
+        await Setting.updateMany(
+            {},
+            { $pull: { suspendedDates: { date: { $gte: todayStr } } } }
+        );
+
+        console.log(`[RESUME] Operations forced to resume. Future suspensions cleared.`);
+
+        return res.status(200).json({
+            message: "Meal operations have been successfully resumed."
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getActiveSuspension = async (req, res, next) => {
+    try {
+        const todayStr = moment().tz("Asia/Manila").format("YYYY-MM-DD");
+
+        // Grab any setting to check the suspendedDates array
+        const setting = await Setting.findOne();
+        if (!setting || !setting.suspendedDates) {
+            return res.status(200).json({ isSuspended: false });
+        }
+
+        // Find all suspensions from today onwards
+        const activeSuspensions = setting.suspendedDates.filter(d => d.date >= todayStr);
+
+        if (activeSuspensions.length > 0) {
+            return res.status(200).json({
+                isSuspended: true,
+                daysCount: activeSuspensions.length,
+                reason: activeSuspensions[0].reason // Grab the reason from the first blocked day
+            });
+        }
+
+        return res.status(200).json({ isSuspended: false });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     createDefaultSetting,
     fetchSetting,
@@ -263,5 +394,8 @@ export {
     enableSetting,
     disableSetting,
     editSetting,
-    addSetting
+    addSetting,
+    suspendOperations,
+    resumeOperations,
+    getActiveSuspension
 };

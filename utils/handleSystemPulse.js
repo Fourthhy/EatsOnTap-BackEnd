@@ -1,5 +1,5 @@
 import Setting from "../models/setting.js";
-import moment from 'moment-timezone'; // 🟢 Use moment for clean, reliable timezone math
+import moment from 'moment-timezone'; 
 
 import { assignCreditsForEvents } from "../controllers/claimController.js";
 import { initializeDailyStudentRecord, finalizeTodayRecord } from '../controllers/reportController.js';
@@ -8,13 +8,12 @@ import { updateEventStatusesLogic } from "../controllers/eventController.js";
 import { checkAndCreateMonthlyReport, initializeDailyReportLogic } from "../update/cron/analyticsCron.js";
 import { higherEdStudentManagement } from "../controllers/programScheduleController.js"
 
-// 🟢 REFACTORED: Ultra-clean date getters using moment-timezone
 const getTodayDate = () => moment().tz("Asia/Manila").format('YYYY-MM-DD');
-const getTodayDayName = () => moment().tz("Asia/Manila").format('dddd').toUpperCase(); // "MONDAY"
+const getTodayDayName = () => moment().tz("Asia/Manila").format('dddd').toUpperCase();
 
 const executeTaskLogic = async (setting) => {
     switch (setting.setting) {
-        //MIDNIGHT TRIGGER SETTINGS
+        // MIDNIGHT TRIGGER SETTINGS
         case 'UPDATE-EVENTS':
             await updateEventStatusesLogic();
             console.log('Daily Update of Events');
@@ -27,16 +26,9 @@ const executeTaskLogic = async (setting) => {
 
         case 'MORNING-SETUP':
             console.log("--> Initiating Morning Setup Sequence...");
-
-            const todayStr = getTodayDate();
-            const suspendedDates = setting.suspendedDates || [];
-            const suspension = suspendedDates.find(d => d.date === todayStr);
-
-            if (suspension) {
-                console.log(`🚨 MEALS SUSPENDED TODAY. Reason: "${suspension.reason}". Skipping Daily Report & Higher Ed Allocation.`);
-                break;
-            }
-
+            // 🟢 The redundant suspension check here was removed because 
+            // the global Kill Switch in handleSystemPulse now handles it!
+            
             await initializeDailyStudentRecord();
             console.log("Executed initialize today record");
 
@@ -45,8 +37,7 @@ const executeTaskLogic = async (setting) => {
             console.log("Morning setup complete. Daily report initialized and Higher Ed automated.");
             break;
             
-        //DAYLIGHT TRIGGER SETTINGS
-
+        // DAYLIGHT TRIGGER SETTINGS
         case 'ASSIGN-CREDITS':
             await higherEdStudentManagement();
             console.log("Executed assign credits for Higher Ed");
@@ -55,7 +46,7 @@ const executeTaskLogic = async (setting) => {
             console.log("Executed assign credits for events");
             break;
 
-        //END OF DAY TRIGGER SETTINGS
+        // END OF DAY TRIGGER SETTINGS
         case 'END-OF-DAY-SWEEP':
             console.log("--> Initiating Midnight Sweep Sequence...");
             await finalizeTodayRecord();
@@ -70,7 +61,6 @@ const handleSystemPulse = async (req, res, next) => {
             return res.status(403).json({ message: "Unauthorized" });
         }
 
-        // Use moment to get precise time data cleanly
         const manilaTime = moment().tz("Asia/Manila");
         const manilaHour = manilaTime.hour();
         const manilaMinute = manilaTime.minute();
@@ -82,6 +72,40 @@ const handleSystemPulse = async (req, res, next) => {
 
         const allSettings = await Setting.find({});
 
+        // =========================================================================
+        // 🚨 GLOBAL KILL SWITCH: Check if today is a suspended date
+        // =========================================================================
+        let activeSuspension = null;
+        for (const s of allSettings) {
+            const found = s.suspendedDates?.find(d => d.date === todayDateStr);
+            if (found) {
+                activeSuspension = found;
+                break;
+            }
+        }
+
+        if (activeSuspension) {
+            console.log(`🚨 SYSTEM SUSPENDED TODAY (${todayDateStr}). Reason: "${activeSuspension.reason}"`);
+            
+            // Safety Net: Force close any operational windows that might be stuck open
+            for (const setting of allSettings) {
+                if (['STUDENT-CLAIM', 'SUBMIT-MEAL-REQUEST'].includes(setting.setting)) {
+                    if (setting.isActive) {
+                        console.log(`[Kill Switch] Forcing ${setting.setting} window to CLOSED.`);
+                        setting.isActive = false;
+                        await setting.save();
+                    }
+                }
+            }
+            
+            // EXIT IMMEDIATELY - No windows will open, no tasks will execute.
+            return res.status(200).json({ 
+                message: `Pulse checked. Operations suspended for today: ${activeSuspension.reason}` 
+            });
+        }
+        // =========================================================================
+
+        // 🟢 NORMAL OPERATIONS RESUME HERE IF NO SUSPENSION FOUND
         for (const setting of allSettings) {
             const startTotalMinutes = (setting.startHour * 60) + setting.startMinute;
             const endTotalMinutes = (setting.endHour * 60) + setting.endMinute;
@@ -113,7 +137,6 @@ const handleSystemPulse = async (req, res, next) => {
             // =========================================================================
             else {
                 if (setting.lastExecutedDate !== todayDateStr && currentTotalMinutes >= startTotalMinutes) {
-                    // 🟢 FIXED: Pass the whole setting object, not just the string!
                     await executeTaskLogic(setting);
 
                     setting.lastExecutedDate = todayDateStr;
@@ -124,7 +147,7 @@ const handleSystemPulse = async (req, res, next) => {
             }
         }
 
-        return res.status(200).json({ message: "Pulse Checked" });
+        return res.status(200).json({ message: "Pulse Checked - Operations Normal" });
 
     } catch (error) {
         next(error);

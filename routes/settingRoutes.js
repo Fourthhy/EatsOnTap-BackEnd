@@ -17,4 +17,10 @@ router.get('/fetchAllSettings', settingController.fetchAllSettings);
 
 router.post('/addSetting', settingController.addSetting);
 
+router.post('/suspendOperations', settingController.suspendOperations);
+
+router.post('/resumeOperations', settingController.resumeOperations);
+
+router.get('/getActiveSuspension', settingController.getActiveSuspension);
+
 module.exports = router;
