@@ -316,8 +316,53 @@ const getClassAdvisers = async (req, res, next) => {
 
 const getAllEvents = async (req, res, next) => {
     try {
-        const allEvents = await Event.find();
-        return res.status(200).json(allEvents);
+        // Use .lean() to get plain JavaScript objects instead of heavy Mongoose documents.
+        // This makes it faster and allows us to easily modify properties before sending.
+        const allEvents = await Event.find().lean();
+
+        const ongoingEvents = [];
+        const upcomingEvents = [];
+        const recentEvents = [];
+
+        const now = new Date();
+
+        allEvents.forEach(event => {
+            // 1. Extract the year from the eventID (e.g., "8-10-3-0-2026" -> "2026")
+            // Fallback to the current year just in case eventID is missing
+            const year = event.eventID ? event.eventID.split('-').pop() : now.getFullYear();
+
+            // 2. Construct valid Date objects for comparison
+            // Example: new Date("April 8, 2026")
+            const startDate = new Date(`${event.startMonth} ${event.startDay}, ${year}`);
+            startDate.setHours(0, 0, 0, 0); // Set to the very beginning of the day
+
+            const endDate = new Date(`${event.endMonth} ${event.endDay}, ${year}`);
+            endDate.setHours(23, 59, 59, 999); // Set to the very last millisecond of the day
+
+            // 3. Categorize based on the current time
+            if (now >= startDate && now <= endDate) {
+                // Force the status to be accurate in real-time for the frontend badges
+                event.scheduleStatus = 'ONGOING';
+                ongoingEvents.push(event);
+            } 
+            else if (now < startDate) {
+                event.scheduleStatus = 'UPCOMING';
+                upcomingEvents.push(event);
+            } 
+            else if (now > endDate) {
+                event.scheduleStatus = 'RECENT';
+                recentEvents.push(event);
+            }
+        });
+
+        // 4. Return the specific Array of Arrays format
+        // Index 0: Ongoing, Index 1: Upcoming, Index 2: Recent
+        return res.status(200).json([
+            ongoingEvents,
+            upcomingEvents,
+            recentEvents
+        ]);
+
     } catch (error) {
         next(error);
     }
