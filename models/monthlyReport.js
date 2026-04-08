@@ -6,8 +6,8 @@ const statisticSchema = new mongoose.Schema({
     totalMealsClaimed: { type: Number, required: true, default: 0 },
     totalClaimed: { type: Number, required: true, default: 0 }, // the sum of totalSnacksClaimed and totalMealsClaimed
     totalUnclaimed: { type: Number, required: true, default: 0 }, // the difference between totalEligible and totalClaimed
-    totalWaived: { type: Number, required: true, default: 0 }, 
-    totalAbsences: { type: Number, required: true, default: 0 }, 
+    totalWaived: { type: Number, required: true, default: 0 },
+    totalAbsences: { type: Number, required: true, default: 0 },
 });
 
 const financialSchema = new mongoose.Schema({
@@ -37,9 +37,19 @@ const monthlyReportSchema = new mongoose.Schema({
     academicYear: { type: String, required: true }, // Format: "YYYY-YYYY"
     statistics: { type: statisticSchema, required: true },
     financials: { type: financialSchema, required: true },
-    dailyReports: { type: [dailyReportSchema], required: true }
-});
+    dailyReports: { type: [dailyReportSchema], required: true },
+    isArchived: {
+        type: Boolean,
+        default: false
+    },
+    isPendingPurge: {
+        type: Boolean,
+        default: false
+    },
+    scheduledPurgeDate: {
+        type: Date,
+        default: null
+    }
+}, { timestamps: true });
 
 module.exports = mongoose.model("MonthlyReport", monthlyReportSchema);
-
-//there must be a function that checks everyday if the day is the last day of the month, and if it is, it should create a new monthly report and save it to the database.

@@ -5,7 +5,7 @@ import { assignCreditsForEvents } from "../controllers/claimController.js";
 import { initializeDailyStudentRecord, finalizeTodayRecord } from '../controllers/reportController.js';
 import { claimStatusResetLogic } from "../controllers/eligibilityController.js";
 import { updateEventStatusesLogic } from "../controllers/eventController.js";
-import { checkAndCreateMonthlyReport, initializeDailyReportLogic } from "../update/cron/analyticsCron.js";
+import { checkAndCreateMonthlyReport, initializeDailyReportLogic, purgeExpiredDataSweep } from "../update/cron/analyticsCron.js";
 import { higherEdStudentManagement } from "../controllers/programScheduleController.js"
 
 const getTodayDate = () => moment().tz("Asia/Manila").format('YYYY-MM-DD');
@@ -51,6 +51,9 @@ const executeTaskLogic = async (setting) => {
             console.log("--> Initiating Midnight Sweep Sequence...");
             await finalizeTodayRecord();
             console.log("Executed finalize record & remove credits");
+
+            await purgeExpiredDataSweep(); 
+            console.log("Executed finalize record & executed data purge sweep");
             break;
     }
 };

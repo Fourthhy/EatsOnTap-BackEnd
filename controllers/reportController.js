@@ -4,6 +4,7 @@ import Credit from '../models/credit.js';
 import Report from '../models/report.js'
 import KPIRange from '../models/kpiRange.js';
 import MonthlyReport from '../models/monthlyReport.js';
+import moment from "moment-timezone"
 
 import { logAction } from "./systemLoggerController.js"
 
@@ -913,6 +914,45 @@ const viewDishes = async (req, res, next) => {
     }
 };
 
+const exportAndArchiveReport = async (req, res, next) => {
+    try {
+        const { bucketMonth } = req.body; // Expecting something like "2026-03"
+
+        if (!bucketMonth) {
+            return res.status(400).json({ message: "bucketMonth is required for export." });
+        }
+
+        // 1. Fetch the target month
+        const report = await MonthlyReport.findOne({ bucketMonth });
+
+        if (!report) {
+            return res.status(404).json({ message: `No record found for ${bucketMonth}.` });
+        }
+
+        // 2. Initiate the 24-Hour Fail-Safe Countdown
+        const manilaNow = moment().tz("Asia/Manila");
+        const purgeDate = manilaNow.clone().add(24, 'hours').toDate();
+
+        report.isPendingPurge = true;
+        report.scheduledPurgeDate = purgeDate;
+        
+        await report.save();
+
+        console.log(`📦 [EXPORT] ${bucketMonth} prepared for download. Purge scheduled for: ${purgeDate}`);
+
+        // 3. Return the full payload to the frontend so it can build the PDF
+        return res.status(200).json({
+            message: "Data ready for export. 24-hour archive timer started.",
+            scheduledPurgeDate: purgeDate,
+            data: report 
+        });
+
+    } catch (error) {
+        console.error("❌ Error in exportAndArchiveReport:", error);
+        next(error);
+    }
+};
+
 
 export {
     initializeDailyStudentRecord,
@@ -925,5 +965,7 @@ export {
     viewDishes,
 
     getDashboardData,
-    getFinancialReport
+    getFinancialReport,
+
+    exportAndArchiveReport
 };

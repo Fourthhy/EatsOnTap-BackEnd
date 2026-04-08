@@ -9,4 +9,6 @@ router.post('/addDishes', reportController.addDishes);
 
 router.post('/initializeDailyReport', reportController.initializeDailyReport);
 
+router.post('/export-and-archive-report', reportController.exportAndArchiveReport);
+
 module.exports = router;

@@ -1,6 +1,5 @@
 import Setting from "../models/setting.js";
 import moment from "moment-timezone";
-
 // 1. Initialize Defaults (Run this once)
 const createDefaultSetting = async (req, res, next) => {
     try {

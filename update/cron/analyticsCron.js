@@ -11,18 +11,18 @@ const checkAndCreateMonthlyReport = async () => {
         const today = new Date(todayStr);
 
         const currentYear = today.getFullYear();
-        const academicYear = `${currentYear}-${currentYear + 1}`; 
+        const academicYear = `${currentYear}-${currentYear + 1}`;
 
         // =========================================================
         // 🟢 CHECK 1: Current Month Fallback (The Mid-Month Fix)
         // =========================================================
         const currentMonthStr = String(today.getMonth() + 1).padStart(2, '0');
         const currentBucketMonth = `${currentYear}-${currentMonthStr}`;
-        
+
         let currentMonthCreated = false;
-        
+
         const existingCurrentReport = await MonthlyReport.findOne({ bucketMonth: currentBucketMonth });
-        
+
         if (!existingCurrentReport) {
             console.log(`⚠️ Mid-month deployment detected. Creating missing bucket for ${currentBucketMonth}...`);
             const newCurrentReport = new MonthlyReport({
@@ -33,9 +33,13 @@ const checkAndCreateMonthlyReport = async () => {
                     totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0
                 },
                 financials: {
-                    totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0
+                    totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0
                 },
-                dailyReports: [] 
+                dailyReports: [],
+                // 🟢 EXPLICIT ARCHIVE FLAGS
+                isArchived: false,
+                isPendingPurge: false,
+                scheduledPurgeDate: null
             });
             await newCurrentReport.save();
             currentMonthCreated = true;
@@ -47,7 +51,7 @@ const checkAndCreateMonthlyReport = async () => {
         const tomorrow = new Date(today);
         tomorrow.setDate(today.getDate() + 1);
         const isLastDay = tomorrow.getDate() === 1;
-        
+
         let nextMonthCreated = false;
 
         if (isLastDay) {
@@ -56,7 +60,7 @@ const checkAndCreateMonthlyReport = async () => {
             const nextBucketMonth = `${nextMonthYear}-${nextMonthStr}`;
 
             const existingNextReport = await MonthlyReport.findOne({ bucketMonth: nextBucketMonth });
-            
+
             if (!existingNextReport) {
                 console.log(`📅 Last day of the month detected. Initializing next month's bucket: ${nextBucketMonth}...`);
                 const newNextReport = new MonthlyReport({
@@ -67,9 +71,13 @@ const checkAndCreateMonthlyReport = async () => {
                         totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0
                     },
                     financials: {
-                        totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0
+                        totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0
                     },
-                    dailyReports: [] 
+                    dailyReports: [],
+                    // 🟢 EXPLICIT ARCHIVE FLAGS
+                    isArchived: false,
+                    isPendingPurge: false,
+                    scheduledPurgeDate: null
                 });
                 await newNextReport.save();
                 nextMonthCreated = true;
@@ -118,8 +126,8 @@ const initializeDailyReportLogic = async () => {
         // 2. Format variables
         const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
         const currentYear = manilaDate.getFullYear();
-        const academicYear = `${currentYear}-${currentYear + 1}`; 
-        
+        const academicYear = `${currentYear}-${currentYear + 1}`;
+
         const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
         const dayOfWeek = days[manilaDate.getDay()];
 
@@ -131,7 +139,7 @@ const initializeDailyReportLogic = async () => {
 
         // 4. Prepare the Daily Slate Template
         const newDailyReport = {
-            date: startOfDay, 
+            date: startOfDay,
             dayOfWeek: dayOfWeek,
             menu: [],
             metrics: { tadmc: 0, cur: 0, ocf: 0 },
@@ -158,7 +166,7 @@ const initializeDailyReportLogic = async () => {
         // =========================================================
         if (!currentMonthReport) {
             console.log(`⚠️ Monthly bucket ${bucketMonth} missing. Creating it alongside today's daily report...`);
-            
+
             const newMonthReport = new MonthlyReport({
                 bucketMonth,
                 academicYear,
@@ -170,7 +178,7 @@ const initializeDailyReportLogic = async () => {
                     totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0
                 },
                 // Inject today's report directly on creation!
-                dailyReports: [newDailyReport] 
+                dailyReports: [newDailyReport]
             });
 
             await newMonthReport.save();
@@ -185,7 +193,7 @@ const initializeDailyReportLogic = async () => {
         // =========================================================
         // 🔵 SCENARIO B: Month Exists, Check if Day Exists
         // =========================================================
-        const todayExists = currentMonthReport.dailyReports.some(report => 
+        const todayExists = currentMonthReport.dailyReports.some(report =>
             report.date >= startOfDay && report.date <= endOfDay
         );
 
@@ -217,8 +225,49 @@ const initializeDailyReportLogic = async () => {
     }
 };
 
+/**
+ * @desc   Automated sweep to safely hard-delete expired granular data. 
+ * Scans for MonthlyReports where the 24-hour 'pending purge' safety window 
+ * has closed, empties their dailyReports array to free up database space, 
+ * and permanently flags the bucket as archived.
+ * @route  Internal / Cron (Triggered by midnight handleSystemPulse)
+ */
+const purgeExpiredDataSweep = async () => {
+    try {
+        const nowStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const manilaNow = new Date(nowStr);
+
+        // Find all reports where the purge was scheduled, and the 24-hour timer has passed
+        const reportsToPurge = await MonthlyReport.find({
+            isPendingPurge: true,
+            scheduledPurgeDate: { $lte: manilaNow }
+        });
+
+        if (reportsToPurge.length === 0) return;
+
+        console.log(`🧹 [PURGE SWEEP] Found ${reportsToPurge.length} bucket(s) with expired safety windows. Executing Hard Delete...`);
+
+        for (const report of reportsToPurge) {
+            // 1. Wipe out the heavy granular data (Hard Delete)
+            report.dailyReports = []; 
+            
+            // 2. Update flags to reflect final archived state
+            report.isPendingPurge = false;
+            report.scheduledPurgeDate = null;
+            report.isArchived = true; 
+
+            await report.save();
+            console.log(`✅ Permanently purged granular data for bucket: ${report.bucketMonth}. Retained historical aggregates.`);
+        }
+        
+    } catch (error) {
+        console.error("❌ Error executing Purge Sweep:", error.message);
+    }
+};
+
 // Export them both together!
-export { 
+export {
     checkAndCreateMonthlyReport,
-    initializeDailyReportLogic
+    initializeDailyReportLogic,
+    purgeExpiredDataSweep
 };
