@@ -6,6 +6,7 @@ const settingSchema = new mongoose.Schema({
     
     // STATE TRACKER
     isActive: { type: Boolean, default: false }, 
+    isEnabled: { type: Boolean, default: true},
 
     // Auto-Open Configuration
     startHour: { type: Number, default: 0 },   

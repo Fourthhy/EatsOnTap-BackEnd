@@ -110,6 +110,21 @@ const handleSystemPulse = async (req, res, next) => {
 
         // 🟢 NORMAL OPERATIONS RESUME HERE IF NO SUSPENSION FOUND
         for (const setting of allSettings) {
+
+            // =========================================================================
+            // 🛑 THE MASTER OVERRIDE CHECK
+            // If the admin disabled this specific setting, force it closed and skip it.
+            // Using `=== false` ensures legacy documents without isEnabled default to true.
+            // =========================================================================
+            if (setting.isEnabled === false) {
+                if (setting.isActive) {
+                    console.log(`[Master Override] ${setting.setting} is manually disabled. Forcing isActive to false.`);
+                    setting.isActive = false;
+                    await setting.save();
+                }
+                continue; // Skip time window checks and task execution entirely
+            }
+
             const startTotalMinutes = (setting.startHour * 60) + setting.startMinute;
             const endTotalMinutes = (setting.endHour * 60) + setting.endMinute;
 

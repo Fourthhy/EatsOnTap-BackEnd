@@ -79,15 +79,6 @@ const createDefaultSetting = async (req, res, next) => {
                 endHour: 7,
                 endMinute: 30
             },
-            {
-                setting: 'MASTER-SETTING',
-                description: 'Master setting that controls the activness of the rest of the settings',
-                isActive: false,
-                startHour: 6,
-                startMinute: 0,
-                endHour: 7,
-                endMinute: 30
-            }
         ];
 
         const newSettings = await Setting.insertMany(defaultSettings);
