@@ -8,7 +8,7 @@ const mockDataController = require('../controllers/mockDataController');
 
 router.put('/removeClaimDetails', developerController.removeClaimDetails);
 
-router.post('/seedMarchData', developerController.seedMarch2026Report);
+router.post('/seedData', developerController.seedLast30DaysReport);
 
 router.post('/generateMockReports', mockDataController.generateMockReports);
 

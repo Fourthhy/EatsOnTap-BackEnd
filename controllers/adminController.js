@@ -159,6 +159,7 @@ const approveMealEligibilityRequest = async (req, res, next) => {
                 $inc: {
                     // Update Monthly Root Totals
                     "statistics.totalEligible": incEligible,
+                    "statistics.totalUnclaimed": incEligible, // 🟢 FIX: Put them in the unclaimed waiting room!
                     "statistics.totalWaived": incWaived,
                     "statistics.totalAbsences": incAbsences,
                     "financials.totalAllottedCredits": incCredits,
@@ -166,6 +167,7 @@ const approveMealEligibilityRequest = async (req, res, next) => {
 
                     // Update Today's Specific Array Element
                     "dailyReports.$[todayRecord].statistics.totalEligible": incEligible,
+                    "dailyReports.$[todayRecord].statistics.totalUnclaimed": incEligible, // 🟢 FIX: Put them in today's waiting room!
                     "dailyReports.$[todayRecord].statistics.totalWaived": incWaived,
                     "dailyReports.$[todayRecord].statistics.totalAbsences": incAbsences,
                     "dailyReports.$[todayRecord].financials.totalAllottedCredits": incCredits,

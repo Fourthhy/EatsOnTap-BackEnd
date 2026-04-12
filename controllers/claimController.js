@@ -114,12 +114,12 @@ const claimMeal = async (req, res, next) => {
         const now = new Date();
         const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
         const manilaDate = new Date(manilaTimeStr);
-        
+
         const startOfDay = new Date(manilaDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(manilaDate);
         endOfDay.setHours(23, 59, 59, 999);
-        
+
         const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
 
         // =========================================================
@@ -188,7 +188,7 @@ const claimMeal = async (req, res, next) => {
                     "statistics.totalClaimed": 1,
                     "financials.totalUsedCredits": MEAL_COST,
                     "financials.totalUnusedCredits": -MEAL_COST, // Shift from Unused to Used
-                    
+
                     // Update Today's Specific Array Element
                     "dailyReports.$[todayRecord].statistics.totalMealsClaimed": 1,
                     "dailyReports.$[todayRecord].statistics.totalClaimed": 1,
@@ -216,9 +216,9 @@ const claimMeal = async (req, res, next) => {
 
         // Execute all 4 database operations instantly and concurrently
         await Promise.all([
-            updateStudentPromise, 
-            updateClaimRecordPromise, 
-            updateDashboardPromise, 
+            updateStudentPromise,
+            updateClaimRecordPromise,
+            updateDashboardPromise,
             loggingPromise
         ]);
 
@@ -290,15 +290,15 @@ const claimFood = async (req, res, next) => {
         let amountPaidInCash = 0;
 
         if (creditTaken > currentBalance) {
-            amountDeductedFromCredit = currentBalance; 
-            amountPaidInCash = creditTaken - currentBalance; 
+            amountDeductedFromCredit = currentBalance;
+            amountPaidInCash = creditTaken - currentBalance;
         } else {
-            amountDeductedFromCredit = creditTaken; 
-            amountPaidInCash = 0; 
+            amountDeductedFromCredit = creditTaken;
+            amountPaidInCash = 0;
         }
 
         const newStudentBalance = currentBalance - amountDeductedFromCredit;
-        const newStatus = newStudentBalance === 0 ? "CLAIMED" : "ELIGIBLE"; 
+        const newStatus = newStudentBalance === 0 ? "CLAIMED" : "ELIGIBLE";
 
         // ---------------------------------------------------------
         // 5. ENFORCE MANILA TIME BOUNDARIES
@@ -306,12 +306,12 @@ const claimFood = async (req, res, next) => {
         const now = new Date();
         const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
         const manilaDate = new Date(manilaTimeStr);
-        
+
         const startOfDay = new Date(manilaDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(manilaDate);
         endOfDay.setHours(23, 59, 59, 999);
-        
+
         const bucketMonth = `${manilaDate.getFullYear()}-${String(manilaDate.getMonth() + 1).padStart(2, '0')}`;
 
         // =========================================================
@@ -374,28 +374,34 @@ const claimFood = async (req, res, next) => {
         })();
 
         // C. Update Dashboard Analytics (Dynamic Math)
-        // We dynamically build the $inc object based on whether they fully depleted their balance
+        // We dynamically build the $inc object based on exact deductions
         const dashboardIncMath = {
             "statistics.totalSnacksClaimed": 1,
             "financials.totalUsedCredits": amountDeductedFromCredit,
             "financials.totalUnusedCredits": -amountDeductedFromCredit,
             "financials.totalOnHandCash": amountPaidInCash,
-            
+
             "dailyReports.$[todayRecord].statistics.totalSnacksClaimed": 1,
             "dailyReports.$[todayRecord].financials.totalUsedCredits": amountDeductedFromCredit,
             "dailyReports.$[todayRecord].financials.totalUnusedCredits": -amountDeductedFromCredit,
             "dailyReports.$[todayRecord].financials.totalOnHandCash": amountPaidInCash
         };
 
-        // If this snack depleted their balance to 0, mark them as officially "Claimed" for the day
+        // 🟢 If this snack depleted their balance to 0, move them from Unclaimed to Claimed headcount!
         if (newStatus === "CLAIMED") {
             dashboardIncMath["statistics.totalClaimed"] = 1;
+            dashboardIncMath["statistics.totalUnclaimed"] = -1; // Balances the scale!
+
             dashboardIncMath["dailyReports.$[todayRecord].statistics.totalClaimed"] = 1;
+            dashboardIncMath["dailyReports.$[todayRecord].statistics.totalUnclaimed"] = -1; // Balances the scale!
         }
 
+        // 🟢 Pass the dynamic object directly into $inc
         const updateDashboardPromise = MonthlyReport.findOneAndUpdate(
             { bucketMonth },
-            { $inc: dashboardIncMath },
+            {
+                $inc: dashboardIncMath
+            },
             {
                 new: true,
                 arrayFilters: [{ "todayRecord.date": { $gte: startOfDay, $lte: endOfDay } }]
@@ -416,9 +422,9 @@ const claimFood = async (req, res, next) => {
 
         // Execute all updates simultaneously
         await Promise.all([
-            updateStudentPromise, 
-            updateClaimRecordPromise, 
-            updateDashboardPromise, 
+            updateStudentPromise,
+            updateClaimRecordPromise,
+            updateDashboardPromise,
             loggingPromise
         ]);
 
@@ -557,9 +563,6 @@ const assignCreditsForEvents = async () => {
         }
     }
 };
-// =========================================================
-// 🟢 FAKE MEAL CLAIM (With Logger)
-// =========================================================
 // =========================================================
 // 🟢 FAKE MEAL CLAIM (With Logger)
 // =========================================================
@@ -791,6 +794,7 @@ const getApprovedStudentsToday = async (req, res, next) => {
 export {
     claimMeal,
     claimFood,
+
     deductCredits,
     assignCreditsForEvents,
     fakeMealClaim,

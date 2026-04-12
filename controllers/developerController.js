@@ -26,44 +26,63 @@ const generateMenuForDay = (dayOfWeek) => {
     return menus[dayOfWeek] || ["Chef's Special", "Rice", "Fruit", "Water"];
 };
 
-const seedMarch2026Report = async (req, res, next) => {
+const seedLast30DaysReport = async (req, res, next) => {
     try {
-        const bucketMonth = "2026-03";
-        const academicYear = "2025-2026";
         const MEAL_VALUE = 60;
+        const manilaNow = moment().tz("Asia/Manila");
+        
+        console.log(`🌱 Seeding Fake Data for the last 30 days...`);
 
-        console.log(`🌱 Seeding Fake Data for ${bucketMonth}...`);
+        // We use an object to group the days because 30 days will likely span two different months!
+        const monthBuckets = {};
 
-        await MonthlyReport.deleteOne({ bucketMonth });
-
-        const monthlyStats = {
-            totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0,
-            totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0
-        };
-        const monthlyFinances = {
-            totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0
-        };
-
-        // This is the array that will hold all 26 operational days
-        const dailyReports = [];
-
-        for (let day = 1; day <= 31; day++) {
-            const dateStr = `2026-03-${String(day).padStart(2, '0')}`;
-            const dateObj = moment.tz(dateStr, "YYYY-MM-DD", "Asia/Manila");
+        // Loop backwards from 30 days ago, up to yesterday (day 1)
+        for (let i = 30; i >= 1; i--) {
+            const dateObj = manilaNow.clone().subtract(i, 'days');
+            const bucketMonth = dateObj.format("YYYY-MM"); // e.g., "2026-03" or "2026-04"
             const dayOfWeek = dateObj.format("dddd").toUpperCase();
 
-            // Skip Sundays completely
+            // Skip Sundays
             if (dayOfWeek === "SUNDAY") continue;
 
-            const eligible = getRandomInt(500, 1900);
-            const absences = getRandomInt(0, Math.floor(eligible * 0.05));
-            const waived = getRandomInt(0, Math.floor(eligible * 0.02));
-            const unclaimed = getRandomInt(0, Math.floor(eligible * 0.08));
+            // Initialize the bucket for this month if it doesn't exist yet
+            if (!monthBuckets[bucketMonth]) {
+                monthBuckets[bucketMonth] = {
+                    bucketMonth: bucketMonth,
+                    academicYear: "2025-2026", // Update as needed
+                    statistics: { totalEligible: 0, totalSnacksClaimed: 0, totalMealsClaimed: 0, totalClaimed: 0, totalUnclaimed: 0, totalWaived: 0, totalAbsences: 0 },
+                    financials: { totalAllottedCredits: 0, totalUsedCredits: 0, totalUnusedCredits: 0, totalOnHandCash: 0 },
+                    dailyReports: []
+                };
+            }
 
-            const claimed = eligible - absences - waived - unclaimed;
-            const snacksClaimed = getRandomInt(Math.floor(claimed * 0.2), Math.floor(claimed * 0.4));
+            // =========================================================================
+            // 🟢 LOGIC FIX: Top-Down Dependent Math for Realistic Statistics
+            // =========================================================================
+            const eligible = getRandomInt(500, 1900);
+            
+            // Step 1: Subtract Absences first
+            const absences = getRandomInt(0, Math.floor(eligible * 0.05));
+            const nonAbsentStudents = eligible - absences;
+
+            // Step 2: Calculate Claims based on a realistic turnout rate (85% to 95%)
+            const percentageWhoClaim = getRandomInt(85, 95) / 100; 
+            const claimed = Math.round(nonAbsentStudents * percentageWhoClaim);
+
+            // Step 3: Find the remainder (students present but didn't claim)
+            const remainingStudents = nonAbsentStudents - claimed;
+
+            // Step 4: Split the remainder into "Waived" and "Unclaimed" safely
+            const maxWaived = Math.min(remainingStudents, Math.floor(eligible * 0.02));
+            const waived = getRandomInt(0, maxWaived);
+            const unclaimed = remainingStudents - waived;
+
+            // Step 5: Split the Claims into Snacks and Meals
+            const snacksPercentage = getRandomInt(20, 40) / 100;
+            const snacksClaimed = Math.round(claimed * snacksPercentage);
             const mealsClaimed = claimed - snacksClaimed;
 
+            // --- FINANCIAL CALCULATIONS ---
             const allottedCredits = eligible * MEAL_VALUE;
             const usedOnMeals = mealsClaimed * MEAL_VALUE;
             const usedOnSnacks = snacksClaimed * getRandomInt(30, 60);
@@ -76,78 +95,70 @@ const seedMarch2026Report = async (req, res, next) => {
             const tadmc = snacksClaimed > 0 ? Number(((usedOnSnacks + onHandCash) / snacksClaimed).toFixed(2)) : 0;
             const cur = allottedCredits > 0 ? Number(((usedCredits / allottedCredits) * 100).toFixed(2)) : 0;
             const ocf = allottedCredits > 0 ? Number(((onHandCash / allottedCredits) * 100).toFixed(2)) : 0;
+            // =========================================================================
 
-            // 🟢 UPGRADED: Pushing the highly detailed Daily Report object
-            dailyReports.push({
+            // Push to this specific month's dailyReports array
+            monthBuckets[bucketMonth].dailyReports.push({
                 date: dateObj.toDate(),
                 dayOfWeek: dayOfWeek,
-                menu: generateMenuForDay(dayOfWeek), // Dynamic menu applied!
-                metrics: {
-                    tadmc: tadmc,
-                    cur: cur,
-                    ocf: ocf
-                },
-                statistics: {
-                    totalEligible: eligible,
-                    totalSnacksClaimed: snacksClaimed,
-                    totalMealsClaimed: mealsClaimed,
-                    totalClaimed: claimed,
-                    totalUnclaimed: unclaimed,
-                    totalWaived: waived,
-                    totalAbsences: absences
-                },
-                financials: {
-                    totalAllottedCredits: allottedCredits,
-                    totalUsedCredits: usedCredits,
-                    totalUnusedCredits: unusedCredits,
-                    totalOnHandCash: onHandCash
-                }
+                menu: generateMenuForDay(dayOfWeek),
+                metrics: { tadmc, cur, ocf },
+                statistics: { totalEligible: eligible, totalSnacksClaimed: snacksClaimed, totalMealsClaimed: mealsClaimed, totalClaimed: claimed, totalUnclaimed: unclaimed, totalWaived: waived, totalAbsences: absences },
+                financials: { totalAllottedCredits: allottedCredits, totalUsedCredits: usedCredits, totalUnusedCredits: unusedCredits, totalOnHandCash: onHandCash }
             });
 
-            // Add to Monthly Aggregates
-            monthlyStats.totalEligible += eligible;
-            monthlyStats.totalSnacksClaimed += snacksClaimed;
-            monthlyStats.totalMealsClaimed += mealsClaimed;
-            monthlyStats.totalClaimed += claimed;
-            monthlyStats.totalUnclaimed += unclaimed;
-            monthlyStats.totalWaived += waived;
-            monthlyStats.totalAbsences += absences;
+            // Aggregate Monthly Totals for this specific month
+            monthBuckets[bucketMonth].statistics.totalEligible += eligible;
+            monthBuckets[bucketMonth].statistics.totalSnacksClaimed += snacksClaimed;
+            monthBuckets[bucketMonth].statistics.totalMealsClaimed += mealsClaimed;
+            monthBuckets[bucketMonth].statistics.totalClaimed += claimed;
+            monthBuckets[bucketMonth].statistics.totalUnclaimed += unclaimed;
+            monthBuckets[bucketMonth].statistics.totalWaived += waived;
+            monthBuckets[bucketMonth].statistics.totalAbsences += absences;
 
-            monthlyFinances.totalAllottedCredits += allottedCredits;
-            monthlyFinances.totalUsedCredits += usedCredits;
-            monthlyFinances.totalUnusedCredits += unusedCredits;
-            monthlyFinances.totalOnHandCash += onHandCash;
+            monthBuckets[bucketMonth].financials.totalAllottedCredits += allottedCredits;
+            monthBuckets[bucketMonth].financials.totalUsedCredits += usedCredits;
+            monthBuckets[bucketMonth].financials.totalUnusedCredits += unusedCredits;
+            monthBuckets[bucketMonth].financials.totalOnHandCash += onHandCash;
         }
 
-        const fakeReport = new MonthlyReport({
-            bucketMonth,
-            academicYear,
-            statistics: monthlyStats,
-            financials: monthlyFinances,
-            dailyReports: dailyReports,
-            isArchived: false,
-            isPendingPurge: false,
-            scheduledPurgeDate: null
-        });
+        // --- SAVE TO DATABASE ---
+        const savedReports = [];
+        
+        // Convert our monthBuckets object into an array and save each one
+        for (const monthKey of Object.keys(monthBuckets)) {
+            const data = monthBuckets[monthKey];
 
-        await fakeReport.save();
+            // Delete any existing fake data for this month to prevent duplicates
+            await MonthlyReport.deleteOne({ bucketMonth: data.bucketMonth });
 
-        console.log(`✅ March 2026 Fake Report generated with ${dailyReports.length} detailed daily records!`);
+            const newReport = new MonthlyReport({
+                ...data,
+                isArchived: false,
+                // 🛑 DISABLED PURGE: The sweep will ignore this data.
+                isPendingPurge: false, 
+                scheduledPurgeDate: null
+            });
 
-        // 🟢 THE TWEAK: Returning the full 'fakeReport' document so you can see all the details!
+            await newReport.save();
+            savedReports.push(newReport);
+        }
+
+        console.log(`✅ Seeded ${savedReports.length} months of data covering the last 30 days!`);
+
         return res.status(200).json({
-            message: "March 2026 Fake Report generated successfully!",
-            totalDaysOperated: dailyReports.length,
-            reportDetails: fakeReport // This includes the stats, financials, and the full dailyReports array
+            message: "Rolling 30-Day Fake Data generated successfully!",
+            monthsAffected: Object.keys(monthBuckets),
+            data: savedReports
         });
 
     } catch (error) {
-        console.error("❌ Error seeding fake report:", error);
+        console.error("❌ Error seeding 30-day report:", error);
         next(error);
     }
 };
 
 export {
     removeClaimDetails,
-    seedMarch2026Report
+    seedLast30DaysReport
 }

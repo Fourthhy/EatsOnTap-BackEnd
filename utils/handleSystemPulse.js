@@ -26,9 +26,6 @@ const executeTaskLogic = async (setting) => {
 
         case 'MORNING-SETUP':
             console.log("--> Initiating Morning Setup Sequence...");
-            // 🟢 The redundant suspension check here was removed because 
-            // the global Kill Switch in handleSystemPulse now handles it!
-            
             await initializeDailyStudentRecord();
             console.log("Executed initialize today record");
 
@@ -68,10 +65,11 @@ const handleSystemPulse = async (req, res, next) => {
         const manilaHour = manilaTime.hour();
         const manilaMinute = manilaTime.minute();
         const todayDateStr = getTodayDate();
+        const todayDayName = getTodayDayName(); // 🟢 NEW: Grab the current day (e.g., "SUNDAY")
 
         const currentTotalMinutes = (manilaHour * 60) + manilaMinute;
 
-        console.log(`PULSE RECEIVED at ${manilaHour}:${manilaMinute} (Manila)`);
+        console.log(`PULSE RECEIVED at ${manilaHour}:${manilaMinute} (Manila) | Day: ${todayDayName}`);
 
         const allSettings = await Setting.find({});
 
@@ -113,8 +111,6 @@ const handleSystemPulse = async (req, res, next) => {
 
             // =========================================================================
             // 🛑 THE MASTER OVERRIDE CHECK
-            // If the admin disabled this specific setting, force it closed and skip it.
-            // Using `=== false` ensures legacy documents without isEnabled default to true.
             // =========================================================================
             if (setting.isEnabled === false) {
                 if (setting.isActive) {
@@ -124,6 +120,23 @@ const handleSystemPulse = async (req, res, next) => {
                 }
                 continue; // Skip time window checks and task execution entirely
             }
+
+            // =========================================================================
+            // 🛑 DAY OF THE WEEK CHECK (THE NEW FEATURE)
+            // =========================================================================
+            const allowedDays = setting.activeDays?.length > 0 
+                ? setting.activeDays 
+                : ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']; // Fallback: Excludes Sunday by default
+
+            if (!allowedDays.includes(todayDayName)) {
+                if (setting.isActive) {
+                    console.log(`[Day Restriction] ${setting.setting} does not run on ${todayDayName}. Forcing isActive to false.`);
+                    setting.isActive = false;
+                    await setting.save();
+                }
+                continue; // Skip this setting entirely for today
+            }
+            // =========================================================================
 
             const startTotalMinutes = (setting.startHour * 60) + setting.startMinute;
             const endTotalMinutes = (setting.endHour * 60) + setting.endMinute;
