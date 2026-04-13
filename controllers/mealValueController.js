@@ -27,55 +27,45 @@ const getMealValue = async (req, res, next) => {
 // 🟢 EDIT: Update the meal value
 const updateMealValue = async (req, res, next) => {
     try {
-        const { newValue } = req.body;
+        const { mealValue } = req.body;
 
-        // 1. Validation
-        if (newValue === undefined || typeof newValue !== 'number' || newValue < 0) {
-            return res.status(400).json({ message: "Please provide a valid positive number for meal value." });
+        // 1. Input Validation
+        // Ensure it exists, is actually a number, and makes logical sense (e.g., > 0)
+        if (mealValue === undefined || typeof mealValue !== 'number' || mealValue <= 0) {
+            return res.status(400).json({
+                message: "Invalid input. Please provide a valid positive number for mealValue."
+            });
         }
 
-        // 2. Find and Update (Upsert ensures it works even if DB is empty)
-        // We fetch the OLD value first for logging purposes
-        const oldRecord = await MealValue.findOne();
-        const oldValue = oldRecord ? oldRecord.mealValue : 0;
-
-        const updatedRecord = await MealValue.findOneAndUpdate(
-            {}, // Match any (first) document
-            { mealValue: newValue },
-            { new: true, upsert: true, setDefaultsOnInsert: true }
-        );
-
-        // 3. SYSTEM LOG: Record the price change
-        // Assumes req.user is populated by your Auth Middleware
-        const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
-        const actorName = req.user ? req.user.email : 'Admin';
-
-        await logAction(
+        // 2. Update or Create (The Singleton Pattern)
+        // By passing an empty filter {}, it targets the very first document it finds.
+        const updatedSetting = await MealValue.findOneAndUpdate(
+            {},
+            { $set: { mealValue: mealValue } },
             {
-                id: actorID,
-                type: 'User',
-                name: actorName,
-                role: 'ADMIN'
-            },
-            'UPDATE_SETTING', // You might need to add this to your SystemLogger enum
-            'SUCCESS',
-            {
-                setting: 'MEAL_VALUE',
-                description: `Updated Meal Value from ${oldValue} to ${newValue}`
+                new: true,           // Returns the updated document instead of the old one
+                upsert: true,        // Creates the document if the collection is completely empty
+                setDefaultsOnInsert: true
             }
         );
 
-        res.status(200).json({
-            success: true,
+        // 3. Return Success Payload
+        return res.status(200).json({
             message: "Meal value updated successfully.",
-            data: updatedRecord
+            currentMealValue: updatedSetting.mealValue
         });
 
     } catch (error) {
-        next(error);
+        console.error("❌ Update Meal Value Error:", error);
+
+        // Pass to standard Express error handler if you have one, or return 500
+        if (next) {
+            next(error);
+        } else {
+            return res.status(500).json({ message: "Internal server error." });
+        }
     }
 };
-
 
 //import assign meal vaue controllers here
 
