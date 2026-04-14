@@ -132,17 +132,14 @@ const getStudentBySection = async (req, res, next) => {
 
 //Create students from CSV
 const creteStudentFromCSV = async (req, res, next) => {
-  // checking if there is a file uploaded
   if (!req.file) {
     return res.status(400).json({ message: "no CSV file uploaded" });
   }
 
   const studentData = [];
-
-  // create a readable stream from the buffer
   const bufferStream = new stream.Readable();
   bufferStream.push(req.file.buffer);
-  bufferStream.push(null); // end of the stream buffering 
+  bufferStream.push(null);
 
   let parseError = null;
 
@@ -159,31 +156,43 @@ const creteStudentFromCSV = async (req, res, next) => {
       }
 
       try {
-        // 1. Bulk insert all students
-        const addedStudents = await Student.insertMany(studentData, { ordered: false });
-
         // =========================================================
-        // 🟢 NEW LOGIC: SYNC PROGRAM SCHEDULES
+        // 🟢 1. CHECK FOR DUPLICATES BEFORE INSERTING
         // =========================================================
 
-        // A. Extract unique combinations using a Map
-        // Key: "ProgramName-Year", Value: Object for ProgramSchedule
+        // Assuming your CSV has a column named 'studentID'
+        // Extract all IDs from the incoming CSV
+        const incomingIDs = studentData.map(student => student.studentID).filter(Boolean);
+
+        // Ask the database which of these IDs already exist
+        const existingStudents = await Student.find({ studentID: { $in: incomingIDs } }).select('studentID').lean();
+        const existingIDSet = new Set(existingStudents.map(s => s.studentID));
+
+        // Filter the CSV data to ONLY include students that don't exist yet
+        const newStudentsToInsert = studentData.filter(student => !existingIDSet.has(student.studentID));
+
+        // If there are actually new students to add, insert them
+        let addedCount = 0;
+        if (newStudentsToInsert.length > 0) {
+          const addedStudents = await Student.insertMany(newStudentsToInsert, { ordered: false });
+          addedCount = addedStudents.length;
+        }
+
+        // =========================================================
+        // 🟢 2. SYNC PROGRAM SCHEDULES (Using BulkWrite for safety)
+        // =========================================================
         const uniqueSchedules = new Map();
 
         studentData.forEach(row => {
-          // Handle loose CSV headers (e.g. "program", "programName", "year", "yearLevel")
-          // Ensure we trim whitespace
           const pName = (row.programName || row.program || row.course || "").trim();
           const pYear = (row.year || row.yearLevel || "").trim();
 
           if (pName && pYear) {
-            const compositeKey = `${pName}-${pYear}`; // Unique identifier
-
+            const compositeKey = `${pName}-${pYear}`;
             if (!uniqueSchedules.has(compositeKey)) {
               uniqueSchedules.set(compositeKey, {
                 programName: pName,
                 year: pYear,
-                // Assign to everyday as requested
                 dayOfWeek: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
                 status: ["PENDING"]
               });
@@ -191,32 +200,38 @@ const creteStudentFromCSV = async (req, res, next) => {
           }
         });
 
-        // B. Convert Map values to Array
         const schedulePayload = Array.from(uniqueSchedules.values());
 
-        // C. Insert into ProgramSchedule Model
-        // We use { ordered: false } so that if a duplicate exists (E11000), 
-        // it ignores that specific error and continues inserting the others.
+        // Use BulkWrite with upsert to safely add schedules without throwing duplicate errors
         if (schedulePayload.length > 0) {
-          try {
-            await ProgramSchedule.insertMany(schedulePayload, { ordered: false });
-            console.log(`✅ Synced ${schedulePayload.length} Program Schedules.`);
-          } catch (scheduleError) {
-            // We intentionally catch and log this to avoid crashing the response.
-            // Duplicate key errors are expected and ignored here.
-            console.log("ℹ️ Some schedules already existed and were skipped.");
-          }
+          const bulkOps = schedulePayload.map(schedule => ({
+            updateOne: {
+              // Assuming you want unique schedules based on program and year
+              filter: { programName: schedule.programName, year: schedule.year },
+              update: { $setOnInsert: schedule }, // Only sets this data if the schedule didn't exist
+              upsert: true
+            }
+          }));
+
+          await ProgramSchedule.bulkWrite(bulkOps, { ordered: false });
+          console.log(`✅ Synced Program Schedules safely.`);
         }
 
         // =========================================================
+        // 🟢 3. RESPOND
+        // =========================================================
 
-        res.status(201).json({ message: `Successfully Created ${addedStudents.length} students` });
+        const duplicateCount = studentData.length - newStudentsToInsert.length;
+
+        res.status(201).json({
+          message: `Processed CSV successfully.`,
+          added: addedCount,
+          skippedDuplicates: duplicateCount
+        });
 
       } catch (error) {
-        console.error("Mongoose insert bulk error:", error.message);
-        // If ordered: false is used, it might return a partial success error object, 
-        // but often we just want to tell the user something failed.
-        return res.status(400).json({ message: "Bulk insertion failed or partially failed", details: error.message });
+        console.error("Mongoose insert bulk error:", error);
+        return res.status(500).json({ message: "An error occurred during processing.", details: error.message });
       }
     })
     .on('error', (error) => {
