@@ -133,10 +133,10 @@ const getStudentBySection = async (req, res, next) => {
 //Create students from CSV
 const creteStudentFromCSV = async (req, res, next) => {
   if (!req.file) {
-    return res.status(400).json({ message: "no CSV file uploaded" });
+    return res.status(400).json({ message: "No CSV file uploaded" });
   }
 
-  const studentData = [];
+  const rawStudentData = [];
   const bufferStream = new stream.Readable();
   bufferStream.push(req.file.buffer);
   bufferStream.push(null);
@@ -146,87 +146,121 @@ const creteStudentFromCSV = async (req, res, next) => {
   bufferStream
     .pipe(csv())
     .on('data', (data) => {
-      studentData.push(data);
+      rawStudentData.push(data);
     })
     .on('end', async () => {
       if (parseError) return;
 
-      if (studentData.length === 0) {
-        return res.status(400).json({ message: "CSV is empty or headers are incorrect, please check" });
+      if (rawStudentData.length === 0) {
+        return res.status(400).json({ message: "CSV is empty or headers are incorrect, please check." });
       }
 
       try {
         // =========================================================
-        // 🟢 1. CHECK FOR DUPLICATES BEFORE INSERTING
+        // 🟢 1. VALIDATE DATA & CATCH MISSING FIELDS
         // =========================================================
+        const validStudentData = [];
+        const failedRows = [];
+        const totalIndicated = rawStudentData.length;
 
-        // Assuming your CSV has a column named 'studentID'
-        // Extract all IDs from the incoming CSV
-        const incomingIDs = studentData.map(student => student.studentID).filter(Boolean);
+        rawStudentData.forEach((row, index) => {
+          // Add or remove fields here based on your Mongoose Schema's required fields
+          const hasStudentID = row.studentID && row.studentID.trim() !== "";
+          const hasFirstName = row.firstName && row.firstName.trim() !== "";
+          const hasLastName = row.lastName && row.lastName.trim() !== "";
 
-        // Ask the database which of these IDs already exist
-        const existingStudents = await Student.find({ studentID: { $in: incomingIDs } }).select('studentID').lean();
-        const existingIDSet = new Set(existingStudents.map(s => s.studentID));
-
-        // Filter the CSV data to ONLY include students that don't exist yet
-        const newStudentsToInsert = studentData.filter(student => !existingIDSet.has(student.studentID));
-
-        // If there are actually new students to add, insert them
-        let addedCount = 0;
-        if (newStudentsToInsert.length > 0) {
-          const addedStudents = await Student.insertMany(newStudentsToInsert, { ordered: false });
-          addedCount = addedStudents.length;
-        }
-
-        // =========================================================
-        // 🟢 2. SYNC PROGRAM SCHEDULES (Using BulkWrite for safety)
-        // =========================================================
-        const uniqueSchedules = new Map();
-
-        studentData.forEach(row => {
-          const pName = (row.programName || row.program || row.course || "").trim();
-          const pYear = (row.year || row.yearLevel || "").trim();
-
-          if (pName && pYear) {
-            const compositeKey = `${pName}-${pYear}`;
-            if (!uniqueSchedules.has(compositeKey)) {
-              uniqueSchedules.set(compositeKey, {
-                programName: pName,
-                year: pYear,
-                dayOfWeek: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
-                status: ["PENDING"]
-              });
-            }
+          if (!hasStudentID || !hasFirstName || !hasLastName) {
+            failedRows.push({
+              rowNumber: index + 2, // +2 because index is 0-based and row 1 is usually the CSV header
+              studentID: row.studentID || "MISSING",
+              reason: "Missing required fields (studentID, firstName, or lastName)."
+            });
+          } else {
+            validStudentData.push(row);
           }
         });
 
-        const schedulePayload = Array.from(uniqueSchedules.values());
+        // =========================================================
+        // 🟢 2. CHECK FOR DUPLICATES BEFORE INSERTING
+        // =========================================================
 
-        // Use BulkWrite with upsert to safely add schedules without throwing duplicate errors
-        if (schedulePayload.length > 0) {
-          const bulkOps = schedulePayload.map(schedule => ({
-            updateOne: {
-              // Assuming you want unique schedules based on program and year
-              filter: { programName: schedule.programName, year: schedule.year },
-              update: { $setOnInsert: schedule }, // Only sets this data if the schedule didn't exist
-              upsert: true
-            }
-          }));
+        let addedCount = 0;
+        let duplicateCount = 0;
+        let newStudentsToInsert = [];
 
-          await ProgramSchedule.bulkWrite(bulkOps, { ordered: false });
-          console.log(`✅ Synced Program Schedules safely.`);
+        if (validStudentData.length > 0) {
+          const incomingIDs = validStudentData.map(student => student.studentID).filter(Boolean);
+
+          const existingStudents = await Student.find({ studentID: { $in: incomingIDs } }).select('studentID').lean();
+          const existingIDSet = new Set(existingStudents.map(s => s.studentID));
+
+          newStudentsToInsert = validStudentData.filter(student => !existingIDSet.has(student.studentID));
+
+          duplicateCount = validStudentData.length - newStudentsToInsert.length;
+
+          if (newStudentsToInsert.length > 0) {
+            const addedStudents = await Student.insertMany(newStudentsToInsert, { ordered: false });
+            addedCount = addedStudents.length;
+          }
         }
 
         // =========================================================
-        // 🟢 3. RESPOND
+        // 🟢 3. SYNC PROGRAM SCHEDULES
         // =========================================================
 
-        const duplicateCount = studentData.length - newStudentsToInsert.length;
+        // We only want to sync schedules for valid rows
+        if (validStudentData.length > 0) {
+          const uniqueSchedules = new Map();
 
-        res.status(201).json({
-          message: `Processed CSV successfully.`,
-          added: addedCount,
-          skippedDuplicates: duplicateCount
+          validStudentData.forEach(row => {
+            const pName = (row.programName || row.program || row.course || "").trim();
+            const pYear = (row.year || row.yearLevel || "").trim();
+
+            if (pName && pYear) {
+              const compositeKey = `${pName}-${pYear}`;
+              if (!uniqueSchedules.has(compositeKey)) {
+                uniqueSchedules.set(compositeKey, {
+                  programName: pName,
+                  year: pYear,
+                  dayOfWeek: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
+                  status: ["PENDING"]
+                });
+              }
+            }
+          });
+
+          const schedulePayload = Array.from(uniqueSchedules.values());
+
+          if (schedulePayload.length > 0) {
+            const bulkOps = schedulePayload.map(schedule => ({
+              updateOne: {
+                filter: { programName: schedule.programName, year: schedule.year },
+                update: { $setOnInsert: schedule },
+                upsert: true
+              }
+            }));
+
+            await ProgramSchedule.bulkWrite(bulkOps, { ordered: false });
+            console.log(`✅ Synced Program Schedules safely.`);
+          }
+        }
+
+        // =========================================================
+        // 🟢 4. RESPOND WITH DETAILED METRICS
+        // =========================================================
+
+        // Determine appropriate status code based on if anything was actually processed
+        const statusCode = (addedCount > 0 || duplicateCount > 0) ? 201 : 200;
+
+        return res.status(statusCode).json({
+          message: "CSV processing completed.",
+          metrics: {
+            totalIndicated: totalIndicated,
+            added: addedCount,
+            skippedDuplicates: duplicateCount,
+            failedValidation: failedRows.length
+          },
+          errors: failedRows.length > 0 ? failedRows : null
         });
 
       } catch (error) {
@@ -236,7 +270,7 @@ const creteStudentFromCSV = async (req, res, next) => {
     })
     .on('error', (error) => {
       parseError = error;
-      next({ status: 400, message: "Error entering CSV File" });
+      next({ status: 400, message: "Error parsing CSV File" });
     });
 };
 
