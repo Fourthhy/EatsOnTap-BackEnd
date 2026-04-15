@@ -706,34 +706,54 @@ const getOverallData = async (kpiSettings) => {
 const getDashboardData = async (req, res, next) => {
     try {
         const anchorDate = req.query.date ? new Date(req.query.date) : new Date();
-        console.log(`📊 Generating Dashboard for: ${anchorDate.toLocaleDateString()}`);
+        const { bucketMonth, cleanDate } = getBucketDateInfo(anchorDate);
 
         const kpiSettings = await KPIRange.findOne();
 
-        // 🟢 Fetch today's exact record from the Monthly Bucket
-        const { bucketMonth, cleanDate } = getBucketDateInfo(anchorDate);
-        const currentBucket = await MonthlyReport.findOne({ bucketMonth });
+        // 🟢 NEW: Create a start and end boundary for the day in Manila time
+        // This ensures we catch the record no matter what time of day it was saved
+        const startOfDay = moment(cleanDate).tz("Asia/Manila").startOf('day').toDate();
+        const endOfDay = moment(cleanDate).tz("Asia/Manila").endOf('day').toDate();
 
-        const todayReport = currentBucket?.dailyReports.find(
-            dr => dr.date.getTime() === cleanDate.getTime()
+        // 🟢 FIX: Use $gte and $lte inside $elemMatch
+        const currentBucket = await MonthlyReport.findOne(
+            { bucketMonth },
+            { 
+                dailyReports: { 
+                    $elemMatch: { 
+                        date: {
+                            $gte: startOfDay,
+                            $lte: endOfDay
+                        }
+                    } 
+                } 
+            }
         );
 
-        // Map to your frontend's expected top-card layout
-        const currentStats = todayReport ? todayReport.statistics : {
+        // Access the first (and only) matched element from the projected array
+        const todayReport = currentBucket?.dailyReports?.[0];
+
+        // Fallback objects if data is missing
+        const defaultStats = {
             totalClaimed: 0, totalUnclaimed: 0,
-            totalSnacksClaimed: 0, totalMealsClaimed: 0, // updated fields
+            totalSnacksClaimed: 0, totalMealsClaimed: 0,
             totalEligible: 0, totalAbsences: 0, totalWaived: 0
         };
 
-        const currentFinancials = todayReport ? todayReport.financials : {
-            totalUsedCredits: 0, totalUnusedCredits: 0, totalAllottedCredits: 0, totalOnHandCash: 0
+        const defaultFinancials = {
+            totalUsedCredits: 0, totalUnusedCredits: 0, 
+            totalAllottedCredits: 0, totalOnHandCash: 0
         };
 
+        const currentStats = todayReport ? todayReport.statistics : defaultStats;
+        const currentFinancials = todayReport ? todayReport.financials : defaultFinancials;
+
+        // Parallel fetch for aggregated views
         const [daily, weekly, monthly, overall] = await Promise.all([
             getDailyData(anchorDate, kpiSettings),
             getWeeklyData(anchorDate, kpiSettings),
-            getMonthlyData(anchorDate, kpiSettings), // Your newly optimized function!
-            getOverallData(kpiSettings)              // Your newly optimized function!
+            getMonthlyData(anchorDate, kpiSettings),
+            getOverallData(kpiSettings)
         ]);
 
         res.status(200).json({
@@ -758,11 +778,9 @@ const getDashboardData = async (req, res, next) => {
                 { CURdata: monthly.cur },
                 { OCFdata: monthly.ocf }
             ],
-            overall: overall,
-
-            // Note: We map the exact variable names your frontend expects here
+            overall,
             stats: {
-                ...currentStats,
+                ...currentStats.toObject?.() || currentStats, // handle mongoose doc vs plain obj
                 eligibleStudentCount: currentStats.totalEligible,
                 absentStudentCount: currentStats.totalAbsences,
                 waivedStudentCount: currentStats.totalWaived
@@ -771,6 +789,7 @@ const getDashboardData = async (req, res, next) => {
         });
 
     } catch (error) {
+        console.error("❌ Dashboard Error:", error);
         next(error);
     }
 };

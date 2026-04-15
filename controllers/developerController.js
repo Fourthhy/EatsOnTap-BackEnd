@@ -31,13 +31,13 @@ const seedLast30DaysReport = async (req, res, next) => {
         const MEAL_VALUE = 60;
         const manilaNow = moment().tz("Asia/Manila");
         
-        console.log(`🌱 Seeding Fake Data for the last 30 days...`);
+        console.log(`🌱 Seeding Fake Data for the last 30 days (including today)...`);
 
         // We use an object to group the days because 30 days will likely span two different months!
         const monthBuckets = {};
 
-        // Loop backwards from 30 days ago, up to yesterday (day 1)
-        for (let i = 30; i >= 1; i--) {
+        // 🟢 FIX: Changed `i >= 1` to `i >= 0` to include today (0 days ago)
+        for (let i = 30; i >= 0; i--) {
             const dateObj = manilaNow.clone().subtract(i, 'days');
             const bucketMonth = dateObj.format("YYYY-MM"); // e.g., "2026-03" or "2026-04"
             const dayOfWeek = dateObj.format("dddd").toUpperCase();
@@ -144,10 +144,10 @@ const seedLast30DaysReport = async (req, res, next) => {
             savedReports.push(newReport);
         }
 
-        console.log(`✅ Seeded ${savedReports.length} months of data covering the last 30 days!`);
+        console.log(`✅ Seeded ${savedReports.length} months of data covering the last 30 days including today!`);
 
         return res.status(200).json({
-            message: "Rolling 30-Day Fake Data generated successfully!",
+            message: "Rolling 30-Day Fake Data (including today) generated successfully!",
             monthsAffected: Object.keys(monthBuckets),
             data: savedReports
         });
