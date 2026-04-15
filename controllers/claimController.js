@@ -14,6 +14,8 @@ import Credit from "../models/credit.js";
 import ProgramSchedule from "../models/ProgramSchedule.js";
 import { logAction } from "./systemLoggerController.js"
 
+import MonthlyReport from "../models/monthlyReport.js";
+
 // 🟢 HELPER: Get PH Date Range (To ensure we hit the right daily record)
 const getPHDateRange = () => {
     const now = new Date();
