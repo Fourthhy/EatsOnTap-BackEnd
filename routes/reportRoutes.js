@@ -11,4 +11,6 @@ router.post('/initializeDailyReport', reportController.initializeDailyReport);
 
 router.post('/export-and-archive-report', reportController.exportAndArchiveReport);
 
+router.get('/export-all', reportController.exportAllStudents);
+
 module.exports = router;

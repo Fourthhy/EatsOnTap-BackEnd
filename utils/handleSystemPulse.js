@@ -32,7 +32,7 @@ const executeTaskLogic = async (setting) => {
             // STEP 1: Build the blank canvas for today
             await initializeDailyReportLogic();
             console.log("Morning setup complete. Daily report initialized and Higher Ed automated.");
-            break;
+        break;
             
         // DAYLIGHT TRIGGER SETTINGS
         case 'ASSIGN-CREDITS':

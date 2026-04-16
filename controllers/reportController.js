@@ -1,4 +1,5 @@
 import Student from '../models/student.js';
+import ExcelJS from "exceljs"
 import ClaimRecord from '../models/claimRecord.js';
 import Credit from '../models/credit.js';
 import Report from '../models/report.js'
@@ -972,6 +973,102 @@ const exportAndArchiveReport = async (req, res, next) => {
     }
 };
 
+const exportAllStudents = async (req, res, next) => {
+    try {
+        // 🟢 Extract both format AND level from query (default to 'all' just in case)
+        const { format, level = 'all' } = req.query; 
+
+        if (!['csv', 'excel'].includes(format)) {
+            return res.status(400).json({ message: "Invalid format. Use 'csv' or 'excel'." });
+        }
+        
+        if (!['all', 'basic', 'higher'].includes(level)) {
+            return res.status(400).json({ message: "Invalid level. Use 'all', 'basic', or 'higher'." });
+        }
+
+        let basicBase64 = null;
+        let higherBase64 = null;
+        
+        // Determine file extensions and MIME types once
+        const isExcel = format === 'excel';
+        const contentType = isExcel 
+            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+            : 'text/csv';
+        const extension = isExcel ? 'xlsx' : 'csv';
+
+        // =========================================================
+        // 1. GENERATE BASIC ED (If requested)
+        // =========================================================
+        if (level === 'all' || level === 'basic') {
+            // Optimized query: Only fetch students with a section
+            const basicData = await Student.find({ section: { $exists: true, $ne: null, $ne: "" } }).lean();
+
+            const wbBasic = new ExcelJS.Workbook();
+            const wsBasic = wbBasic.addWorksheet('Basic Ed');
+            
+            wsBasic.columns = [
+                { header: 'Student ID', key: 'studentID', width: 15 },
+                { header: 'First Name', key: 'first_name', width: 20 },
+                { header: 'Middle Name', key: 'middle_name', width: 15 },
+                { header: 'Last Name', key: 'last_name', width: 20 },
+                { header: 'Section', key: 'section', width: 15 },
+                { header: 'Year', key: 'year', width: 10 }
+            ];
+            wsBasic.addRows(basicData);
+
+            const basicBuffer = isExcel 
+                ? await wbBasic.xlsx.writeBuffer() 
+                : await wbBasic.csv.writeBuffer();
+                
+            basicBase64 = basicBuffer.toString('base64');
+        }
+
+        // =========================================================
+        // 2. GENERATE HIGHER ED (If requested)
+        // =========================================================
+        if (level === 'all' || level === 'higher') {
+            // Optimized query: Only fetch students with a program
+            const higherData = await Student.find({ program: { $exists: true, $ne: null, $ne: "" } }).lean();
+
+            const wbHigher = new ExcelJS.Workbook();
+            const wsHigher = wbHigher.addWorksheet('Higher Ed');
+            
+            wsHigher.columns = [
+                { header: 'Student ID', key: 'studentID', width: 15 },
+                { header: 'First Name', key: 'first_name', width: 20 },
+                { header: 'Middle Name', key: 'middle_name', width: 15 },
+                { header: 'Last Name', key: 'last_name', width: 20 },
+                { header: 'Program', key: 'program', width: 15 },
+                { header: 'Year', key: 'year', width: 10 }
+            ];
+            wsHigher.addRows(higherData);
+
+            const higherBuffer = isExcel 
+                ? await wbHigher.xlsx.writeBuffer() 
+                : await wbHigher.csv.writeBuffer();
+                
+            higherBase64 = higherBuffer.toString('base64');
+        }
+
+        // =========================================================
+        // 3. SEND PAYLOAD
+        // =========================================================
+        return res.status(200).json({
+            message: "Files generated successfully",
+            files: {
+                basic: basicBase64, // Will be null if they only asked for 'higher'
+                higher: higherBase64 // Will be null if they only asked for 'basic'
+            },
+            contentType,
+            extension
+        });
+
+    } catch (error) {
+        console.error("❌ Export Error:", error);
+        next(error);
+    }
+};
+
 
 export {
     initializeDailyStudentRecord,
@@ -986,5 +1083,6 @@ export {
     getDashboardData,
     getFinancialReport,
 
-    exportAndArchiveReport
+    exportAndArchiveReport,
+    exportAllStudents
 };
