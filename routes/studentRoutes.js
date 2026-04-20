@@ -23,7 +23,7 @@ router.get('/:studentID', studentController.getStudentById);
 /* ==== ADMIN CONTROLS ==== */
 
 //Route for adding students using csv
-router.post('/usingCSV', upload.single('students_information'), studentController.creteStudentFromCSV);
+router.post('/usingCSV', upload.single('students_information'), studentController.createStudentFromCSV);
 
 //Route for deem student Waived
 router.put('/waiveStatus/:studentID', studentController.waiveStudent);
