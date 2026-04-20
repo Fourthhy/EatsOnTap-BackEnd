@@ -8,5 +8,6 @@ router.get('/viewProgramSchedule', programScheduleController.viewProgramSchedule
 router.get('/fetchAllProgramSchedule', programScheduleController.viewAllProgramSchedule);
 router.put('/editProgramSchedule', programScheduleController.editProgramSchedule);
 router.get('/getWeeklyMealStats', programScheduleController.getWeeklyMealStats);
+router.put('/updateProgramSchedule', programScheduleController.updateProgramSchedule);
 
 module.exports = router;

@@ -386,11 +386,83 @@ const getWeeklyMealStats = async (req, res) => {
     }
 };
 
+/**
+ * @desc    Search and update a Program Schedule
+ * @route   PUT /api/schedules/update
+ * @access  Private/Admin
+ */
+const updateProgramSchedule = async (req, res) => {
+    try {
+        // 1. Destructure the payload sent from EditScheduleModal.onSave
+        const { _id, program, year, dayOfWeek, isActive } = req.body;
+
+        // 2. Validate that we have a way to find the exact document
+        if (!_id && (!program || !year)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Please provide either an '_id' or both 'program' and 'year' to search." 
+            });
+        }
+
+        // 3. Build the search query based on available identifiers
+        const searchQuery = _id ? { _id } : { program, year };
+
+        // 4. Perform the Search and Update operations
+        const updatedSchedule = await ProgramSchedule.findOneAndUpdate(
+            searchQuery,
+            { 
+                $set: { 
+                    // Only update the fields that are actually provided in the request
+                    ...(dayOfWeek && { dayOfWeek }),
+                    ...(isActive !== undefined && { isActive })
+                } 
+            },
+            { 
+                new: true,           // Returns the modified document rather than the original
+                runValidators: true  // Strictly enforces your "SUNDAY", "MONDAY", etc. enum constraints
+            }
+        );
+
+        // 5. Handle the case where the document doesn't exist
+        if (!updatedSchedule) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Program schedule not found in the database." 
+            });
+        }
+
+        // 6. Return the updated data back to the frontend
+        return res.status(200).json({
+            success: true,
+            message: "Schedule updated successfully.",
+            data: updatedSchedule
+        });
+
+    } catch (error) {
+        console.error("Error updating program schedule:", error);
+        
+        // Handle Mongoose duplicate key error (11000) just in case someone tries to mutate program/year
+        if (error.code === 11000) {
+             return res.status(409).json({
+                 success: false,
+                 message: "A schedule for this Program and Year already exists."
+             });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "A server error occurred while updating the schedule.",
+            error: error.message
+        });
+    }
+};
+
 export {
     addProgramSchedule,
     viewProgramSchedule,
     viewAllProgramSchedule,
     editProgramSchedule,
     higherEdStudentManagement,
-    getWeeklyMealStats
+    getWeeklyMealStats,
+    updateProgramSchedule
 };
