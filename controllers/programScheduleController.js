@@ -1,7 +1,7 @@
 import ProgramSchedule from "../models/ProgramSchedule.js";
 import Student from "../models/student.js";
 import ClaimRecord from "../models/claimRecord.js";
-import mealValue from "../models/mealValue.js"; 
+import mealValue from "../models/mealValue.js";
 import MonthlyReport from "../models/monthlyReport.js";
 
 // ==========================================
@@ -35,13 +35,13 @@ const addProgramSchedule = async (req, res, next) => {
         const update = {
             $set: {
                 dayOfWeek: dayOfWeek.map(d => d.toUpperCase()),
-                isActive: isActive !== undefined ? isActive : true 
+                isActive: isActive !== undefined ? isActive : true
             }
         };
 
         const options = {
-            new: true,   
-            upsert: true, 
+            new: true,
+            upsert: true,
             setDefaultsOnInsert: true
         };
 
@@ -105,7 +105,7 @@ const editProgramSchedule = async (req, res, next) => {
             newProgram,
             newYear,
             dayOfWeek,
-            isActive 
+            isActive
         } = req.body;
 
         if (!currentProgram || !currentYear) {
@@ -172,7 +172,7 @@ const higherEdStudentManagement = async () => {
         const now = new Date();
         const manilaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Manila" });
         const manilaDate = new Date(manilaTimeStr);
-        
+
         const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
         const todayStr = days[manilaDate.getDay()];
 
@@ -219,7 +219,7 @@ const higherEdStudentManagement = async () => {
         }
 
         const groupedSections = activeSchedules.map(schedule => {
-            const sectionName = `${schedule.program} - ${schedule.year}`; 
+            const sectionName = `${schedule.program} - ${schedule.year}`;
             const studentsInProgram = eligibleStudents.filter(
                 s => s.program === schedule.program && s.year === schedule.year
             );
@@ -234,7 +234,7 @@ const higherEdStudentManagement = async () => {
                 })),
                 waivedStudents: []
             };
-        }).filter(group => group.eligibleStudents.length > 0); 
+        }).filter(group => group.eligibleStudents.length > 0);
 
         groupedSections.forEach(newGroup => {
             const exists = dailyRecord.claimRecords.some(r => r.section === newGroup.section);
@@ -256,7 +256,7 @@ const higherEdStudentManagement = async () => {
                 $inc: {
                     "statistics.totalEligible": incEligible,
                     "financials.totalAllottedCredits": incCredits,
-                    "financials.totalUnusedCredits": incCredits, 
+                    "financials.totalUnusedCredits": incCredits,
                     "dailyReports.$[todayRecord].statistics.totalEligible": incEligible,
                     "dailyReports.$[todayRecord].financials.totalAllottedCredits": incCredits,
                     "dailyReports.$[todayRecord].financials.totalUnusedCredits": incCredits
@@ -275,11 +275,11 @@ const higherEdStudentManagement = async () => {
 
         await Student.updateMany(
             { studentID: { $in: studentIDsToUpdate } },
-            { 
-                $set: { 
-                    temporaryClaimStatus: "ELIGIBLE", 
+            {
+                $set: {
+                    temporaryClaimStatus: "ELIGIBLE",
                     temporaryCreditBalance: currentMealValue
-                } 
+                }
             }
         );
 
@@ -290,10 +290,107 @@ const higherEdStudentManagement = async () => {
     }
 };
 
+const getWeeklyMealStats = async (req, res) => {
+    try {
+        // Define the days explicitly so MONDAY is index 0, TUESDAY is 1, etc.
+        const daysOfWeek = [
+            "MONDAY", "TUESDAY", "WEDNESDAY",
+            "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"
+        ];
+
+        // Process all days concurrently to generate the multidimensional array
+        const weeklyData = await Promise.all(daysOfWeek.map(async (day) => {
+
+            // 1. Find all active schedules for this specific day
+            const activeSchedules = await ProgramSchedule.find({
+                dayOfWeek: day,
+                isActive: true
+            });
+
+            // If no programs are scheduled for this day, return default 0 values
+            if (activeSchedules.length === 0) {
+                return [
+                    { title: "Meal Claims", value: 0, subtitle: "0% of total allotted" },
+                    { title: "Meal Unclaims", value: 0, subtitle: "0% of total allotted" },
+                    { title: "Total Allotted Meals", value: 0, subtitle: day.charAt(0) + day.slice(1).toLowerCase() }
+                ];
+            }
+
+            // 2. Build the strict Program + Year query.
+            // This ensures we ONLY count students in the exact program AND exact year scheduled for today.
+            const programYearQuery = {
+                $or: activeSchedules.map(schedule => ({
+                    program: schedule.program,
+                    year: schedule.year
+                }))
+            };
+
+            // 3. Count Total Allotted Meals (All students enrolled in today's active programs/years)
+            const totalAllottedMeals = await Student.countDocuments(programYearQuery);
+
+            // 4. Count Unclaimed Meals (Students scheduled today whose status is ELIGIBLE)
+            // The spread operator (...) cleanly merges the $or array with the status check
+            const mealUnclaims = await Student.countDocuments({
+                ...programYearQuery,
+                temporaryClaimStatus: "ELIGIBLE"
+            });
+
+            // 5. Count Claimed Meals 
+            const mealClaims = await Student.countDocuments({
+                ...programYearQuery,
+                temporaryClaimStatus: "CLAIMED"
+            });
+
+            // Calculate percentages safely to avoid division by zero
+            const claimsPercentage = totalAllottedMeals > 0
+                ? Math.round((mealClaims / totalAllottedMeals) * 100)
+                : 0;
+
+            const unclaimsPercentage = totalAllottedMeals > 0
+                ? Math.round((mealUnclaims / totalAllottedMeals) * 100)
+                : 0;
+
+            // 6. Return the formatted array for this day
+            return [
+                {
+                    title: "Meal Claims",
+                    value: mealClaims,
+                    subtitle: `${claimsPercentage}% of total allotted`
+                },
+                {
+                    title: "Meal Unclaims",
+                    value: mealUnclaims,
+                    subtitle: `${unclaimsPercentage}% of total allotted`
+                },
+                {
+                    title: "Total Allotted Meals",
+                    value: totalAllottedMeals,
+                    subtitle: day.charAt(0) + day.slice(1).toLowerCase()
+                }
+            ];
+        }));
+
+        // Return the final multidimensional array payload
+        return res.status(200).json({
+            success: true,
+            data: weeklyData
+        });
+
+    } catch (error) {
+        console.error("Error generating weekly meal stats:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch meal statistics",
+            error: error.message
+        });
+    }
+};
+
 export {
     addProgramSchedule,
     viewProgramSchedule,
     viewAllProgramSchedule,
     editProgramSchedule,
-    higherEdStudentManagement
+    higherEdStudentManagement,
+    getWeeklyMealStats
 };

@@ -7,5 +7,6 @@ router.post('/addProgramSchedule', programScheduleController.addProgramSchedule)
 router.get('/viewProgramSchedule', programScheduleController.viewProgramSchedule);
 router.get('/fetchAllProgramSchedule', programScheduleController.viewAllProgramSchedule);
 router.put('/editProgramSchedule', programScheduleController.editProgramSchedule);
+router.get('/getWeeklyMealStats', programScheduleController.getWeeklyMealStats);
 
 module.exports = router;
