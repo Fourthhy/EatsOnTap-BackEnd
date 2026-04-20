@@ -130,7 +130,6 @@ const getStudentBySection = async (req, res, next) => {
   }
 }
 
-//Create students from CSV
 const createStudentFromCSV = async (req, res, next) => {
   if (!req.file) {
     return res.status(400).json({ message: "No CSV file uploaded" });
@@ -141,72 +140,106 @@ const createStudentFromCSV = async (req, res, next) => {
   bufferStream.push(req.file.buffer);
   bufferStream.push(null);
 
+  let parseError = null;
+
   bufferStream
     .pipe(csv())
     .on('data', (data) => {
       rawStudentData.push(data);
     })
     .on('end', async () => {
+      if (parseError) return;
+
       if (rawStudentData.length === 0) {
-        return res.status(400).json({ message: "CSV is empty or headers are incorrect." });
+        return res.status(400).json({ message: "CSV is empty or headers are incorrect, please check." });
       }
 
       try {
+        // =========================================================
+        // 🟢 1. VALIDATE DATA & CATCH MISSING FIELDS
+        // =========================================================
         const validStudentData = [];
         const failedRows = [];
         const totalIndicated = rawStudentData.length;
 
         rawStudentData.forEach((row, index) => {
-          // FIX: Match CSV headers exactly: first_name, last_name
+          // 1. Extract required fields
           const sID = (row.studentID || "").trim();
           const fName = (row.first_name || "").trim();
+          const mName = (row.middle_name || "").trim();
           const lName = (row.last_name || "").trim();
 
-          if (!sID || !fName || !lName) {
+          // 2. Validate against ALL Mongoose 'required: true' fields
+          if (!sID || !fName || !mName || !lName) {
             failedRows.push({
               rowNumber: index + 2,
               studentID: sID || "MISSING",
-              reason: "Missing required fields (studentID, first_name, or last_name)."
+              reason: "Missing required fields (studentID, first_name, middle_name, or last_name)."
             });
           } else {
-            // Transform row to match your Mongoose Schema keys if necessary
-            validStudentData.push({
+            // 3. Build the base payload
+            const studentPayload = {
               studentID: sID,
-              firstName: fName, 
-              lastName: lName,
-              middleName: (row.middle_name || "").trim(),
-              program: (row.program || "").trim(),
+              first_name: fName,
+              middle_name: mName,
+              last_name: lName,
               year: (row.year || "").trim()
-            });
+            };
+
+            // 4. Conditionally add program OR section based on what the CSV has
+            if (row.program && row.program.trim() !== "") {
+              studentPayload.program = row.program.trim();
+            }
+
+            if (row.section && row.section.trim() !== "") {
+              studentPayload.section = row.section.trim();
+            }
+
+            // Push the dynamically built object
+            validStudentData.push(studentPayload);
           }
         });
 
+        // =========================================================
+        // 🟢 2. CHECK FOR DUPLICATES BEFORE INSERTING
+        // =========================================================
+
         let addedCount = 0;
         let duplicateCount = 0;
+        let newStudentsToInsert = [];
 
         if (validStudentData.length > 0) {
-          const incomingIDs = validStudentData.map(s => s.studentID);
+          const incomingIDs = validStudentData.map(student => student.studentID).filter(Boolean);
+
           const existingStudents = await Student.find({ studentID: { $in: incomingIDs } }).select('studentID').lean();
           const existingIDSet = new Set(existingStudents.map(s => s.studentID));
 
-          const newStudentsToInsert = validStudentData.filter(s => !existingIDSet.has(s.studentID));
+          newStudentsToInsert = validStudentData.filter(student => !existingIDSet.has(student.studentID));
+
           duplicateCount = validStudentData.length - newStudentsToInsert.length;
 
           if (newStudentsToInsert.length > 0) {
             const addedStudents = await Student.insertMany(newStudentsToInsert, { ordered: false });
             addedCount = addedStudents.length;
           }
+        }
 
-          // --- Sync Program Schedules ---
+        // =========================================================
+        // 🟢 3. SYNC PROGRAM SCHEDULES
+        // =========================================================
+
+        // We only want to sync schedules for valid rows
+        if (validStudentData.length > 0) {
           const uniqueSchedules = new Map();
+
           validStudentData.forEach(row => {
-            const pName = row.program;
-            const pYear = row.year;
+            const pName = (row.programName || row.program || row.course || "").trim();
+            const pYear = (row.year || row.yearLevel || "").trim();
 
             if (pName && pYear) {
-              const key = `${pName}-${pYear}`;
-              if (!uniqueSchedules.has(key)) {
-                uniqueSchedules.set(key, {
+              const compositeKey = `${pName}-${pYear}`;
+              if (!uniqueSchedules.has(compositeKey)) {
+                uniqueSchedules.set(compositeKey, {
                   programName: pName,
                   year: pYear,
                   dayOfWeek: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
@@ -216,22 +249,33 @@ const createStudentFromCSV = async (req, res, next) => {
             }
           });
 
-          if (uniqueSchedules.size > 0) {
-            const bulkOps = Array.from(uniqueSchedules.values()).map(schedule => ({
+          const schedulePayload = Array.from(uniqueSchedules.values());
+
+          if (schedulePayload.length > 0) {
+            const bulkOps = schedulePayload.map(schedule => ({
               updateOne: {
                 filter: { programName: schedule.programName, year: schedule.year },
                 update: { $setOnInsert: schedule },
                 upsert: true
               }
             }));
+
             await ProgramSchedule.bulkWrite(bulkOps, { ordered: false });
+            console.log(`✅ Synced Program Schedules safely.`);
           }
         }
 
-        return res.status((addedCount > 0) ? 201 : 200).json({
+        // =========================================================
+        // 🟢 4. RESPOND WITH DETAILED METRICS
+        // =========================================================
+
+        // Determine appropriate status code based on if anything was actually processed
+        const statusCode = (addedCount > 0 || duplicateCount > 0) ? 201 : 200;
+
+        return res.status(statusCode).json({
           message: "CSV processing completed.",
           metrics: {
-            totalIndicated,
+            totalIndicated: totalIndicated,
             added: addedCount,
             skippedDuplicates: duplicateCount,
             failedValidation: failedRows.length
@@ -240,13 +284,12 @@ const createStudentFromCSV = async (req, res, next) => {
         });
 
       } catch (error) {
-        console.error("Processing error:", error);
-        if (!res.headersSent) {
-          return res.status(500).json({ message: "Internal server error during CSV processing." });
-        }
+        console.error("Mongoose insert bulk error:", error);
+        return res.status(500).json({ message: "An error occurred during processing.", details: error.message });
       }
     })
     .on('error', (error) => {
+      parseError = error;
       next({ status: 400, message: "Error parsing CSV File" });
     });
 };

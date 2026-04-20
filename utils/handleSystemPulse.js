@@ -10,7 +10,6 @@ import { higherEdStudentManagement } from "../controllers/programScheduleControl
 
 const getTodayDate = () => moment().tz("Asia/Manila").format('YYYY-MM-DD');
 const getTodayDayName = () => moment().tz("Asia/Manila").format('dddd').toUpperCase();
-
 const executeTaskLogic = async (setting) => {
     switch (setting.setting) {
         // MIDNIGHT TRIGGER SETTINGS
@@ -18,12 +17,10 @@ const executeTaskLogic = async (setting) => {
             await updateEventStatusesLogic();
             console.log('Daily Update of Events');
             break;
-
         case 'CHECK-MONTHLY-REPORT':
             await checkAndCreateMonthlyReport();
             console.log('Checked and Created Monthly Report if needed');
             break;
-
         case 'MORNING-SETUP':
             console.log("--> Initiating Morning Setup Sequence...");
             await initializeDailyStudentRecord();
@@ -33,7 +30,6 @@ const executeTaskLogic = async (setting) => {
             await initializeDailyReportLogic();
             console.log("Morning setup complete. Daily report initialized and Higher Ed automated.");
         break;
-            
         // DAYLIGHT TRIGGER SETTINGS
         case 'ASSIGN-CREDITS':
             await higherEdStudentManagement();
@@ -42,7 +38,6 @@ const executeTaskLogic = async (setting) => {
             await assignCreditsForEvents();
             console.log("Executed assign credits for events");
             break;
-
         // END OF DAY TRIGGER SETTINGS
         case 'END-OF-DAY-SWEEP':
             console.log("--> Initiating Midnight Sweep Sequence...");
