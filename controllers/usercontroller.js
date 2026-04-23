@@ -24,13 +24,13 @@ const getAllUsers = async (req, res, next) => {
 const addUser = async (req, res, next) => {
     try {
         // 🟢 1. Destructure ALL relevant fields from the body, including isGoogleAuth
-        const { 
-            userID, 
-            email, 
-            password, 
-            role, 
-            first_name, 
-            middle_name, 
+        const {
+            userID,
+            email,
+            password,
+            role,
+            first_name,
+            middle_name,
             last_name,
             isGoogleAuth // 🟢 NEW: Capture the Google Auth flag
         } = req.body;
@@ -71,7 +71,7 @@ const addUser = async (req, res, next) => {
             role,
             isActive: false, // Default from model
             // 🟢 UPDATE: Fixed typo from original code and applied Google Auth logic
-            isRequiredChangePassword: isGoogleAuth ? false : true 
+            isRequiredChangePassword: isGoogleAuth ? false : true
         });
 
         await newUser.save();
@@ -84,14 +84,22 @@ const addUser = async (req, res, next) => {
             { id: creatorID, type: 'User', name: creatorName, role: 'ADMIN' },
             'CREATE_USER', // Made action more specific
             'SUCCESS',
-            { 
+            {
                 description: `Created new ${role} account: ${userID}`,
-                isGoogleAuth: isGoogleAuth || false 
+                isGoogleAuth: isGoogleAuth || false
             }
         );
 
         // 7. Response (Hide password)
         const { password: userPassword, ...userInfo } = newUser._doc;
+
+        const io = req.app.get('socketio');
+        if (io) {
+            io.emit('add-user', { type: 'Super Admin', message: 'Update Triggered' });
+        }
+
+
+
         res.status(201).json(userInfo);
 
     } catch (error) {
