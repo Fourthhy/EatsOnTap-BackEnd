@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const studentController = require('../controllers/studentController');
 const userAuthentication = require('../middlewares/userAuthentication');
+const updatedStudentController = require('../update/controllers/studentController.js');
 
 // import upload  from '../middlewares/multer.js'
 const upload = require('../middlewares/multer.js').default;
@@ -37,7 +38,7 @@ router.put('/rfidLink/:studentID', studentController.studentRFIDLinking);
 //Route for fetch students using course for class adivser eligiblity
 router.get('/getSection/:sectionName', userAuthentication.authSecurity, userAuthentication.checkRole('CLASS-ADVISER'), studentController.getStudentBySection);
 
-
-
+//Route for archiving students 
+router.post('/archiveStudent', updatedStudentController.archiveStudent);
 
 module.exports = router;

@@ -1,5 +1,6 @@
 import Student from "../../models/student.js";
 import SectionProgram from "../../models/sectionprogram.js";
+import ArchivedStudent from "../../models/archivedStudents.js";
 
 /**
  * @desc    Create a new Student and link to Section/Program
@@ -28,9 +29,9 @@ const createStudent = async (req, res) => {
         const matchedSectionProgram = await SectionProgram.findOne(matchQuery);
 
         if (!matchedSectionProgram) {
-            return res.status(404).json({ 
-                success: false, 
-                message: `Cannot create student. No matching record found for Year: ${year} and ${section ? 'Section: ' + section : 'Program: ' + program}.` 
+            return res.status(404).json({
+                success: false,
+                message: `Cannot create student. No matching record found for Year: ${year} and ${section ? 'Section: ' + section : 'Program: ' + program}.`
             });
         }
 
@@ -59,9 +60,9 @@ const createStudent = async (req, res) => {
     } catch (error) {
         // Handle unique constraint violation for studentID
         if (error.code === 11000) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "A student with this studentID already exists. Creation aborted." 
+            return res.status(400).json({
+                success: false,
+                message: "A student with this studentID already exists. Creation aborted."
             });
         }
         return res.status(500).json({ success: false, message: error.message });
@@ -136,9 +137,9 @@ const updateStudent = async (req, res) => {
     } catch (error) {
         // Handle unique constraint violation in case they try to update to an existing studentID
         if (error.code === 11000) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "A student with this studentID already exists." 
+            return res.status(400).json({
+                success: false,
+                message: "A student with this studentID already exists."
             });
         }
         return res.status(500).json({ success: false, message: error.message });
@@ -169,10 +170,66 @@ const deleteStudent = async (req, res) => {
     }
 };
 
+const archiveStudent = async (req, res) => {
+    try {
+        const { id } = req.body;
+
+        // 1. Fetch the target student using findById
+        const targetStudent = await Student.findById(id);
+
+        // 2. Validate the student exists
+        if (!targetStudent) {
+            return res.status(404).json({
+                success: false,
+                message: "Student not found."
+            });
+        }
+
+        // 3. Create a new document in the ArchivedStudent collection
+        // Mongoose will automatically map the matching fields and ignore 
+        // fields that don't exist in the archive schema (like temporaryClaimStatus).
+        const archivedData = new ArchivedStudent({
+            rfidTag: targetStudent.rfidTag,
+            studentID: targetStudent.studentID,
+            first_name: targetStudent.first_name,
+            middle_name: targetStudent.middle_name,
+            last_name: targetStudent.last_name,
+            section: targetStudent.section,
+            program: targetStudent.program,
+            year: targetStudent.year,
+            academicStatus: targetStudent.academicStatus,
+            claimRecords: targetStudent.claimRecords
+        });
+
+        // 4. Save to the archive database
+        await archivedData.save();
+
+        // 5. Delete the original record from the active Student database
+        await Student.findByIdAndDelete(id);
+
+        // 6. Return a success response
+        return res.status(200).json({
+            success: true,
+            message: "Student successfully archived.",
+            data: archivedData
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+
 export {
     createStudent,
     getAllStudents,
     getStudentById,
     updateStudent,
-    deleteStudent
+
+    //If the student is archived, delete it upon export
+    deleteStudent,
+    archiveStudent
 };

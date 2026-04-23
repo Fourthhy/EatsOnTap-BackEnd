@@ -14,7 +14,8 @@ const programScheduleSchema = new mongoose.Schema({
     },
     dayOfWeek: [{ 
         type: String, 
-        enum: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"] 
+        enum: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"],
+        default: []
     }],
     isActive: { 
         type: Boolean, 

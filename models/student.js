@@ -9,11 +9,9 @@ const studentSchema = new mongoose.Schema({
   first_name: { type: String, required: true },
   middle_name: { type: String, required: true },
   last_name: { type: String, required: true },
-
   section: { type: String }, //for basic education
   program: { type: String }, //for higher education
   year: { type: String, required: true },
-
   academicStatus: { type: String, enum: ["IRREGULAR", "REGULAR"], default: "REGULAR" },
 
   temporaryClaimStatus: {
@@ -37,7 +35,6 @@ const studentSchema = new mongoose.Schema({
     creditClaimed: { type: Number },
     remarks: { type: [String], enum: ["CLAIMED", "UNCLAIMED", "WAIVED", "UNASSIGNED"] },
   }],
-  //the claim record to track the claim history of the student.
 });
 
 module.exports = mongoose.model('Student', studentSchema);
