@@ -11,28 +11,28 @@ const monthMap = {
 //this is what the ADMIN role uses
 const addEvent = async (req, res, next) => {
     try {
-        const { 
-            eventName, 
-            eventScope, 
-            startDay, 
-            endDay, 
-            startMonth, 
-            endMonth, 
-            eventColor, 
+        const {
+            eventName,
+            eventScope,
+            startDay,
+            endDay,
+            startMonth,
+            endMonth,
+            eventColor,
             forEligibleSection, // Expecting Array of objects: [{ section: "A", year: "1" }]
             forEligibleProgramsAndYear // Expecting Array of objects
         } = req.body;
 
         const now = new Date();
         const thisYear = now.getFullYear();
-        
+
         // 1. Calculate Array Lengths for ID
         const sectionLen = forEligibleSection ? forEligibleSection.length : 0;
         const programLen = forEligibleProgramsAndYear ? forEligibleProgramsAndYear.length : 0;
 
         // 2. Generate ID
         const eventID = `${startDay}-${endDay}-${sectionLen}-${programLen}-${thisYear}`;
-        
+
         // 3. Prepare Data with Default Counts (0)
         // We map through the incoming arrays to ensure the counts are set to 0 initially
         const sectionsWithCounts = forEligibleSection?.map(item => ({
@@ -48,16 +48,16 @@ const addEvent = async (req, res, next) => {
         })) || [];
 
         // 4. Create New Event
-        const newEvent = new Event({ 
-            eventID, 
-            eventName, 
-            eventScope, 
-            startDay, 
-            endDay, 
-            startMonth, 
+        const newEvent = new Event({
+            eventID,
+            eventName,
+            eventScope,
+            startDay,
+            endDay,
+            startMonth,
             endMonth,
-            eventColor, 
-            forEligibleSection: sectionsWithCounts, 
+            eventColor,
+            forEligibleSection: sectionsWithCounts,
             forEligibleProgramsAndYear: programsWithCounts,
             submissionStatus: 'APPROVED'
         });
@@ -65,8 +65,13 @@ const addEvent = async (req, res, next) => {
         await newEvent.save();
 
         addNotification("Event Created", `successfully created ${eventName} event!`);
-        
-        res.status(200).json({ 
+
+        const io = req.app.get('socketio');
+        if (io) {
+            io.emit('add-event', { type: 'Admin', message: 'Update Triggered' });
+            }
+
+        res.status(200).json({
             message: `${eventName} event created successfully!`,
             data: newEvent
         });
