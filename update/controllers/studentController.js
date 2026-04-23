@@ -1,6 +1,7 @@
 import Student from "../../models/student.js";
 import SectionProgram from "../../models/sectionprogram.js";
 import ArchivedStudent from "../../models/archivedStudents.js";
+import mongoose from "mongoose";
 
 /**
  * @desc    Create a new Student and link to Section/Program
@@ -174,8 +175,14 @@ const archiveStudent = async (req, res) => {
     try {
         const { id } = req.body;
 
-        // 1. Fetch the target student using findById
-        const targetStudent = await Student.findById(id);
+        // 🟢 SMART QUERY: Check if the incoming ID is a valid 24-char MongoDB _id
+        const isMongoId = mongoose.Types.ObjectId.isValid(id);
+
+        // If it's a Mongo _id, search the _id column. Otherwise, search the studentID column.
+        const query = isMongoId ? { _id: id } : { studentID: id };
+
+        // 1. Fetch the target student using the smart query
+        const targetStudent = await Student.findOne(query);
 
         // 2. Validate the student exists
         if (!targetStudent) {
@@ -186,8 +193,6 @@ const archiveStudent = async (req, res) => {
         }
 
         // 3. Create a new document in the ArchivedStudent collection
-        // Mongoose will automatically map the matching fields and ignore 
-        // fields that don't exist in the archive schema (like temporaryClaimStatus).
         const archivedData = new ArchivedStudent({
             rfidTag: targetStudent.rfidTag,
             studentID: targetStudent.studentID,
@@ -204,8 +209,16 @@ const archiveStudent = async (req, res) => {
         // 4. Save to the archive database
         await archivedData.save();
 
-        // 5. Delete the original record from the active Student database
-        await Student.findByIdAndDelete(id);
+        // 5. Delete the original record from the active Student database using the smart query
+        await Student.findOneAndDelete(query);
+
+        const io = req.app.get('socketio');
+        if (io) {
+            io.emit('update-student-register', { type: 'All-Students', message: 'Update Student Register' });
+            console.log('🔔 Socket Emitted to all student clients');
+        } else {
+            console.error('❌ Socket.io not found');
+        }
 
         // 6. Return a success response
         return res.status(200).json({
