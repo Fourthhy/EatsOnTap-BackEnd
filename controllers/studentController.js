@@ -272,6 +272,11 @@ const createStudentFromCSV = async (req, res, next) => {
         // Determine appropriate status code based on if anything was actually processed
         const statusCode = (addedCount > 0 || duplicateCount > 0) ? 201 : 200;
 
+        const io = req.app.get('socketio');
+        if (io) {
+          io.emit('update-student-register', { type: 'Admin', message: 'Update Triggered' });
+        }
+        
         return res.status(statusCode).json({
           message: "CSV processing completed.",
           metrics: {
