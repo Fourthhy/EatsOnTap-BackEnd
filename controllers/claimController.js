@@ -522,7 +522,7 @@ const assignCreditsForEvents = async (req, res) => {
         let totalAssignedAcrossAllEvents = 0;
         const processedEventsDetails = [];
 
-        const mealConfig = await MealValue.findOne({});
+        const mealConfig = await mealValue.findOne({});
         if (!mealConfig) {
             if (res) return res.status(400).json({ success: false, message: "Meal value configuration not found." });
             return;
@@ -539,11 +539,9 @@ const assignCreditsForEvents = async (req, res) => {
             const approvedSections = ev.forEligibleSection || [];
             const approvedProgramsAndYears = ev.forEligibleProgramsAndYear || [];
 
-            // 🟢 BUGFIX 1: Safe Querying (Case-Insensitive & Space-Trimmed)
             const sectionQueries = approvedSections
                 .filter(s => s.section != null && s.year != null)
                 .map(s => ({
-                    // ^ and $ ensure exact word match, 'i' makes it case-insensitive
                     section: { $regex: new RegExp(`^${String(s.section).trim()}$`, 'i') },
                     year: String(s.year).trim()
                 }));
@@ -569,9 +567,7 @@ const assignCreditsForEvents = async (req, res) => {
             const sectionCounts = {};
             const programCounts = {};
 
-            // Tally up the students by their section/program and year
             for (const student of eligibleStudents) {
-                // Ensure we handle case formatting so it matches our keys
                 if (student.section) {
                     const key = `${student.section.trim()}-${student.year.trim()}`.toLowerCase();
                     sectionCounts[key] = (sectionCounts[key] || 0) + 1;
@@ -607,13 +603,10 @@ const assignCreditsForEvents = async (req, res) => {
                 await ev.save();
             }
 
-            // ---------------------------------------------------------
-            // 🟢 BUGFIX 2: Force temporaryClaimStatus to 'ELIGIBLE'
-            // ---------------------------------------------------------
             await Student.updateMany(query, {
                 $set: {
                     temporaryCreditBalance: currentMealValue,
-                    temporaryClaimStatus: 'ELIGIBLE' // This makes them officially bestowed!
+                    temporaryClaimStatus: 'ELIGIBLE'
                 }
             });
 
@@ -645,12 +638,19 @@ const assignCreditsForEvents = async (req, res) => {
                 eventName: ev.eventName,
                 programs: programNames,
                 sections: sectionNames,
-                totalStudentsForEvent: studentsAssignedCount
+                totalStudentsForEvent: studentsAssignedCount,
+                eventCreditsAdded: totalNewCredits
             });
 
-            // ---------------------------------------------------------
-            // 📊 DASHBOARD & REPORT UPDATE LOGIC
-            // ---------------------------------------------------------
+            console.log(`✅ Processed ONGOING event '${ev.eventName}' - ${studentsAssignedCount} students.`);
+        }
+
+        // ---------------------------------------------------------
+        // 🟢 THE MODIFICATION: Finalized Math & Single Dashboard Update
+        // ---------------------------------------------------------
+        const totalCreditsAllocatedToDashboard = totalAssignedAcrossAllEvents * currentMealValue;
+
+        if (totalAssignedAcrossAllEvents > 0) {
             let report = await MonthlyReport.findOne({ bucketMonth });
 
             if (!report) {
@@ -663,10 +663,10 @@ const assignCreditsForEvents = async (req, res) => {
                 });
             }
 
-            report.statistics.totalEligible += studentsAssignedCount;
-            report.statistics.totalUnclaimed += studentsAssignedCount;
-            report.financials.totalAllottedCredits += totalNewCredits;
-            report.financials.totalUnusedCredits += totalNewCredits;
+            report.statistics.totalEligible += totalAssignedAcrossAllEvents;
+            report.statistics.totalUnclaimed += totalAssignedAcrossAllEvents;
+            report.financials.totalAllottedCredits += totalCreditsAllocatedToDashboard;
+            report.financials.totalUnusedCredits += totalCreditsAllocatedToDashboard;
 
             let dailyIndex = report.dailyReports.findIndex(
                 (dr) => dr.date.getDate() === dateToday && dr.date.getMonth() === now.getMonth()
@@ -685,21 +685,26 @@ const assignCreditsForEvents = async (req, res) => {
                 dailyIndex = report.dailyReports.length - 1;
             }
 
-            report.dailyReports[dailyIndex].statistics.totalEligible += studentsAssignedCount;
-            report.dailyReports[dailyIndex].statistics.totalUnclaimed += studentsAssignedCount;
-            report.dailyReports[dailyIndex].financials.totalAllottedCredits += totalNewCredits;
-            report.dailyReports[dailyIndex].financials.totalUnusedCredits += totalNewCredits;
+            report.dailyReports[dailyIndex].statistics.totalEligible += totalAssignedAcrossAllEvents;
+            report.dailyReports[dailyIndex].statistics.totalUnclaimed += totalAssignedAcrossAllEvents;
+            report.dailyReports[dailyIndex].financials.totalAllottedCredits += totalCreditsAllocatedToDashboard;
+            report.dailyReports[dailyIndex].financials.totalUnusedCredits += totalCreditsAllocatedToDashboard;
 
             await report.save();
-
-            console.log(`✅ Assigned ${currentMealValue} credits for ONGOING event '${ev.eventName}' - ${studentsAssignedCount} students.`);
+            console.log(`✅ Dashboard officially updated: +${totalAssignedAcrossAllEvents} eligible, +${totalCreditsAllocatedToDashboard} credits.`);
         }
 
         if (res) {
             return res.status(200).json({
                 success: true,
-                message: `Successfully processed ${processedEventsDetails.length} ONGOING events. Credits assigned to ${totalAssignedAcrossAllEvents} students in total.`,
-                details: processedEventsDetails
+                message: `Successfully processed ${processedEventsDetails.length} ONGOING events. Bestowed credits to ${totalAssignedAcrossAllEvents} students and allocated a total of ${totalCreditsAllocatedToDashboard} credits to the dashboard.`,
+                details: processedEventsDetails,
+                dashboardLogs: {
+                    reportMonth: bucketMonth,
+                    dayUpdated: dateToday,
+                    totalEligibleIncrease: totalAssignedAcrossAllEvents,
+                    totalAllottedCreditsIncrease: totalCreditsAllocatedToDashboard
+                }
             });
         }
 
