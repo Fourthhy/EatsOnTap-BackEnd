@@ -522,8 +522,7 @@ const assignCreditsForEvents = async (req, res) => {
         let totalAssignedAcrossAllEvents = 0;
         const processedEventsDetails = [];
 
-        // 1. Fetch Meal Configuration
-        const mealConfig = await mealValue.findOne({});
+        const mealConfig = await MealValue.findOne({});
         if (!mealConfig) {
             if (res) return res.status(400).json({ success: false, message: "Meal value configuration not found." });
             return;
@@ -531,79 +530,129 @@ const assignCreditsForEvents = async (req, res) => {
 
         const currentMealValue = mealConfig.mealValue;
 
-        // 2. Query Events (Using both statuses to be safe)
         const ongoingEvents = await Event.find({
             submissionStatus: 'APPROVED',
             scheduleStatus: 'ONGOING'
         });
 
         for (const ev of ongoingEvents) {
-            // 3. Extract the arrays of objects
             const approvedSections = ev.forEligibleSection || [];
             const approvedProgramsAndYears = ev.forEligibleProgramsAndYear || [];
 
-            // 🟢 CRITICAL FIX: Map both sections and programs properly
-            const sectionQueries = approvedSections.map(s => ({
-                section: s.section,
-                year: s.year
-            }));
+            // 🟢 BUGFIX 1: Safe Querying (Case-Insensitive & Space-Trimmed)
+            const sectionQueries = approvedSections
+                .filter(s => s.section != null && s.year != null)
+                .map(s => ({
+                    // ^ and $ ensure exact word match, 'i' makes it case-insensitive
+                    section: { $regex: new RegExp(`^${String(s.section).trim()}$`, 'i') },
+                    year: String(s.year).trim()
+                }));
 
-            const programQueries = approvedProgramsAndYears.map(p => ({
-                program: p.program,
-                year: p.year
-            }));
+            const programQueries = approvedProgramsAndYears
+                .filter(p => p.program != null && p.year != null)
+                .map(p => ({
+                    program: { $regex: new RegExp(`^${String(p.program).trim()}$`, 'i') },
+                    year: String(p.year).trim()
+                }));
 
             const queryConditions = [...sectionQueries, ...programQueries];
 
-            // Skip if event has no targets
             if (queryConditions.length === 0) continue;
 
-            // Build the final query (Temporarily Waived removed as it's not in the Event schema)
-            const query = {
-                $or: queryConditions
-            };
+            const query = { $or: queryConditions };
 
-            const eligibleStudents = await Student.find(query).select('studentID');
+            const eligibleStudents = await Student.find(query).select('studentID section program year');
             const studentsAssignedCount = eligibleStudents.length;
 
             if (studentsAssignedCount === 0) continue;
 
-            // 4. Apply the credits
+            const sectionCounts = {};
+            const programCounts = {};
+
+            // Tally up the students by their section/program and year
+            for (const student of eligibleStudents) {
+                // Ensure we handle case formatting so it matches our keys
+                if (student.section) {
+                    const key = `${student.section.trim()}-${student.year.trim()}`.toLowerCase();
+                    sectionCounts[key] = (sectionCounts[key] || 0) + 1;
+                } else if (student.program) {
+                    const key = `${student.program.trim()}-${student.year.trim()}`.toLowerCase();
+                    programCounts[key] = (programCounts[key] || 0) + 1;
+                }
+            }
+
+            let eventNeedsSaving = false;
+
+            if (ev.forEligibleSection.length > 0) {
+                ev.forEligibleSection.forEach(sec => {
+                    const key = `${sec.section.trim()}-${sec.year.trim()}`.toLowerCase();
+                    if (sectionCounts[key]) {
+                        sec.totalEligibleCount += sectionCounts[key];
+                        eventNeedsSaving = true;
+                    }
+                });
+            }
+
+            if (ev.forEligibleProgramsAndYear.length > 0) {
+                ev.forEligibleProgramsAndYear.forEach(prog => {
+                    const key = `${prog.program.trim()}-${prog.year.trim()}`.toLowerCase();
+                    if (programCounts[key]) {
+                        prog.totalEligibleCount += programCounts[key];
+                        eventNeedsSaving = true;
+                    }
+                });
+            }
+
+            if (eventNeedsSaving) {
+                await ev.save();
+            }
+
+            // ---------------------------------------------------------
+            // 🟢 BUGFIX 2: Force temporaryClaimStatus to 'ELIGIBLE'
+            // ---------------------------------------------------------
             await Student.updateMany(query, {
-                $set: { temporaryCreditBalance: currentMealValue }
+                $set: {
+                    temporaryCreditBalance: currentMealValue,
+                    temporaryClaimStatus: 'ELIGIBLE' // This makes them officially bestowed!
+                }
             });
 
-            // Concurrent Logging
             const logPromises = eligibleStudents.map(student =>
                 logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', currentMealValue)
             );
             await Promise.all(logPromises);
 
-            // 5. Calculate financials
             const totalNewCredits = studentsAssignedCount * currentMealValue;
             totalAssignedAcrossAllEvents += studentsAssignedCount;
 
-            // Format strings for response
             const sectionNames = approvedSections.length > 0
-                ? approvedSections.map(s => `${s.section} (Year ${s.year})`).join(', ')
+                ? approvedSections.map(s => {
+                    const key = `${s.section.trim()}-${s.year.trim()}`.toLowerCase();
+                    const count = sectionCounts[key] || 0;
+                    return `${s.section} (Year ${s.year}): ${count} students`;
+                }).join(', ')
                 : 'None';
+
             const programNames = approvedProgramsAndYears.length > 0
-                ? approvedProgramsAndYears.map(p => `${p.program} (Year ${p.year})`).join(', ')
+                ? approvedProgramsAndYears.map(p => {
+                    const key = `${p.program.trim()}-${p.year.trim()}`.toLowerCase();
+                    const count = programCounts[key] || 0;
+                    return `${p.program} (Year ${p.year}): ${count} students`;
+                }).join(', ')
                 : 'None';
 
             processedEventsDetails.push({
                 eventName: ev.eventName,
                 programs: programNames,
                 sections: sectionNames,
-                studentsCount: studentsAssignedCount
+                totalStudentsForEvent: studentsAssignedCount
             });
 
             // ---------------------------------------------------------
-            // 📊 DASHBOARD & REPORT UPDATE LOGIC (With Self-Healing)
+            // 📊 DASHBOARD & REPORT UPDATE LOGIC
             // ---------------------------------------------------------
             let report = await MonthlyReport.findOne({ bucketMonth });
 
-            // Create a blank report if it's the 1st of the month and doesn't exist yet
             if (!report) {
                 report = new MonthlyReport({
                     bucketMonth: bucketMonth,
@@ -623,7 +672,6 @@ const assignCreditsForEvents = async (req, res) => {
                 (dr) => dr.date.getDate() === dateToday && dr.date.getMonth() === now.getMonth()
             );
 
-            // Create a blank daily report if today hasn't been initialized
             if (dailyIndex === -1) {
                 const daysOfWeek = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
                 report.dailyReports.push({
@@ -662,6 +710,7 @@ const assignCreditsForEvents = async (req, res) => {
         }
     }
 };
+
 
 // =========================================================
 // 🟢 FAKE MEAL CLAIM (With Logger)

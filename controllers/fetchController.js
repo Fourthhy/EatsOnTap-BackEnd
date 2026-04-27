@@ -144,11 +144,22 @@ const getSchoolStructure = async (req, res, next) => {
 
         const responseData = Object.keys(departmentsMap).map(deptKey => {
             const yearsObj = departmentsMap[deptKey];
+            
             const levels = Object.keys(yearsObj).map(yearKey => {
-                return {
-                    levelName: yearKey,
-                    sections: Array.from(yearsObj[yearKey]).sort()
-                };
+                const sortedData = Array.from(yearsObj[yearKey]).sort();
+                
+                // 🟢 DYNAMIC KEY FIX: Return "programs" for higher ed, "sections" for basic ed
+                if (deptKey === "higherEducation") {
+                    return {
+                        levelName: yearKey,
+                        programs: sortedData
+                    };
+                } else {
+                    return {
+                        levelName: yearKey,
+                        sections: sortedData
+                    };
+                }
             });
 
             levels.sort((a, b) => (parseYear(a.levelName) || -1) - (parseYear(b.levelName) || -1));
