@@ -7,7 +7,7 @@ import Report from "../models/report.js";
 import Student from "../models/student.js";
 
 import Setting from "../models/setting.js";
-import event from "../models/event.js";
+import Event from "../models/event.js";
 import eligibilityBasicEd from "../models/eligibilityBasicEd.js";
 import eligibilityHigherEd from "../models/eligibilityHigherEd.js";
 import Credit from "../models/credit.js";
@@ -502,69 +502,167 @@ const deductCredits = async (req, res, next) => {
     }
 };
 
+const getAcademicYear = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return month >= 7 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+};
+
 /**
  * @desc Sweeps the database at the end of the day. 
  * Reclaims credits from students who didn't eat, updates the POS masterlist, 
  * and pushes "Unclaimed" stats to the dashboard.
  */
+const assignCreditsForEvents = async (req, res) => {
+    try {
+        const now = new Date();
+        const dateToday = now.getDate();
+        const bucketMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+        let totalAssignedAcrossAllEvents = 0;
+        const processedEventsDetails = [];
 
-const assignCreditsForEvents = async () => {
-    const now = new Date();
-    const dateToday = now.getDate(); // day of the month (1-31)
+        // 1. Fetch Meal Configuration
+        const mealConfig = await mealValue.findOne({});
+        if (!mealConfig) {
+            if (res) return res.status(400).json({ success: false, message: "Meal value configuration not found." });
+            return;
+        }
 
-    const approvedEvents = await event.find({ status: 'APPROVED' });
+        const currentMealValue = mealConfig.mealValue;
 
-    for (const ev of approvedEvents) {
-        // Make sure to use ev.startDay and ev.endDay (as string, convert to number for comparison)
-        // You may also want to check the month or year, if needed.
-        const startDay = parseInt(ev.startDay, 10);
-        const endDay = parseInt(ev.endDay, 10);
+        // 2. Query Events (Using both statuses to be safe)
+        const ongoingEvents = await Event.find({
+            submissionStatus: 'APPROVED',
+            scheduleStatus: 'ONGOING'
+        });
 
-        if (dateToday >= startDay && dateToday <= endDay) {
-            // Eligible sections
-            const approvedSections = ev.forEligibleSection; // e.g., ['Romans', 'Galatians']
+        for (const ev of ongoingEvents) {
+            // 3. Extract the arrays of objects
+            const approvedSections = ev.forEligibleSection || [];
+            const approvedProgramsAndYears = ev.forEligibleProgramsAndYear || [];
 
-            // Eligible programs and year - array of objects
-            const approvedProgramsAndYears = ev.forEligibleProgramsAndYear; // e.g., [{program: 'BSCS', year: '2'}, ...]
+            // 🟢 CRITICAL FIX: Map both sections and programs properly
+            const sectionQueries = approvedSections.map(s => ({
+                section: s.section,
+                year: s.year
+            }));
 
-            // Waived students for today
-            const temporarilyWaivedStudents = ev.forTemporarilyWaived; // e.g., ['johndoe123', 'janedoe456']
+            const programQueries = approvedProgramsAndYears.map(p => ({
+                program: p.program,
+                year: p.year
+            }));
 
-            // Query to find students meeting the event eligibility
-            // Example: Find students in eligible sections and/or programs/year, and not in waived list
+            const queryConditions = [...sectionQueries, ...programQueries];
+
+            // Skip if event has no targets
+            if (queryConditions.length === 0) continue;
+
+            // Build the final query (Temporarily Waived removed as it's not in the Event schema)
             const query = {
-                $or: [
-                    { section: { $in: approvedSections } },
-                    ...approvedProgramsAndYears.map(pair => ({
-                        program: pair.program,
-                        year: pair.year
-                    }))
-                ],
-                studentID: { $nin: temporarilyWaivedStudents }
+                $or: queryConditions
             };
 
-            const eligibleStudents = await Student.find(query);
+            const eligibleStudents = await Student.find(query).select('studentID');
+            const studentsAssignedCount = eligibleStudents.length;
 
-            // Assign credits to all those students
-            const credit = await Credit.findOne({});
-            const updatedStudents = [];
+            if (studentsAssignedCount === 0) continue;
 
-            for (const student of eligibleStudents) {
-                student.creditValue = credit.creditValue;
-                await student.save();
-                await logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', credit.creditValue);
-                updatedStudents.push({
-                    studentID: student.studentID,
-                    creditValue: student.creditValue
+            // 4. Apply the credits
+            await Student.updateMany(query, {
+                $set: { temporaryCreditBalance: currentMealValue }
+            });
+
+            // Concurrent Logging
+            const logPromises = eligibleStudents.map(student =>
+                logClaimAttempt(student.studentID, 'ASSIGN-CREDIT', currentMealValue)
+            );
+            await Promise.all(logPromises);
+
+            // 5. Calculate financials
+            const totalNewCredits = studentsAssignedCount * currentMealValue;
+            totalAssignedAcrossAllEvents += studentsAssignedCount;
+
+            // Format strings for response
+            const sectionNames = approvedSections.length > 0
+                ? approvedSections.map(s => `${s.section} (Year ${s.year})`).join(', ')
+                : 'None';
+            const programNames = approvedProgramsAndYears.length > 0
+                ? approvedProgramsAndYears.map(p => `${p.program} (Year ${p.year})`).join(', ')
+                : 'None';
+
+            processedEventsDetails.push({
+                eventName: ev.eventName,
+                programs: programNames,
+                sections: sectionNames,
+                studentsCount: studentsAssignedCount
+            });
+
+            // ---------------------------------------------------------
+            // 📊 DASHBOARD & REPORT UPDATE LOGIC (With Self-Healing)
+            // ---------------------------------------------------------
+            let report = await MonthlyReport.findOne({ bucketMonth });
+
+            // Create a blank report if it's the 1st of the month and doesn't exist yet
+            if (!report) {
+                report = new MonthlyReport({
+                    bucketMonth: bucketMonth,
+                    academicYear: getAcademicYear(now),
+                    statistics: {},
+                    financials: {},
+                    dailyReports: []
                 });
             }
 
-            console.log(`✅ Assigned credits for event '${ev.eventName}' (${ev.eventID}) - ${updatedStudents.length} students`);
-            // You can return or handle updatedStudents as needed
+            report.statistics.totalEligible += studentsAssignedCount;
+            report.statistics.totalUnclaimed += studentsAssignedCount;
+            report.financials.totalAllottedCredits += totalNewCredits;
+            report.financials.totalUnusedCredits += totalNewCredits;
+
+            let dailyIndex = report.dailyReports.findIndex(
+                (dr) => dr.date.getDate() === dateToday && dr.date.getMonth() === now.getMonth()
+            );
+
+            // Create a blank daily report if today hasn't been initialized
+            if (dailyIndex === -1) {
+                const daysOfWeek = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+                report.dailyReports.push({
+                    date: now,
+                    dayOfWeek: daysOfWeek[now.getDay()],
+                    menu: [],
+                    metrics: {},
+                    statistics: {},
+                    financials: {}
+                });
+                dailyIndex = report.dailyReports.length - 1;
+            }
+
+            report.dailyReports[dailyIndex].statistics.totalEligible += studentsAssignedCount;
+            report.dailyReports[dailyIndex].statistics.totalUnclaimed += studentsAssignedCount;
+            report.dailyReports[dailyIndex].financials.totalAllottedCredits += totalNewCredits;
+            report.dailyReports[dailyIndex].financials.totalUnusedCredits += totalNewCredits;
+
+            await report.save();
+
+            console.log(`✅ Assigned ${currentMealValue} credits for ONGOING event '${ev.eventName}' - ${studentsAssignedCount} students.`);
+        }
+
+        if (res) {
+            return res.status(200).json({
+                success: true,
+                message: `Successfully processed ${processedEventsDetails.length} ONGOING events. Credits assigned to ${totalAssignedAcrossAllEvents} students in total.`,
+                details: processedEventsDetails
+            });
+        }
+
+    } catch (error) {
+        console.error("Error in assignCreditsForEvents:", error);
+        if (res) {
+            return res.status(500).json({ success: false, message: error.message });
         }
     }
 };
+
 // =========================================================
 // 🟢 FAKE MEAL CLAIM (With Logger)
 // =========================================================

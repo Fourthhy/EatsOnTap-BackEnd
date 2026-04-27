@@ -19,7 +19,10 @@ router.put('/:studentID/deduct-credits', claimController.deductCredits);
 
 router.get('/fakeMealClaim', claimController.fakeMealClaim)
 
-router.put('fakeFoodItemClaim', claimController.fakeFoodItemClaim);
+router.put('/fakeFoodItemClaim', claimController.fakeFoodItemClaim);
+
+router.post('/assignCreditsForEvents', claimController.assignCreditsForEvents)
+
 
 
 module.exports = router;
