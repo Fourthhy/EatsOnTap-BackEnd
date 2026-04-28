@@ -1,5 +1,5 @@
 import Event from "../models/event.js";
-import { addNotification } from "./notificationController.js";
+import { addNotification } from "../controllers/notificationController.js"
 
 const monthMap = {
     "January": 0, "February": 1, "March": 2, "April": 3,
@@ -64,8 +64,9 @@ const addEvent = async (req, res, next) => {
 
         await newEvent.save();
 
-        addNotification("Event Created", `successfully created ${eventName} event!`);
-
+        //Add the "addNotificaation" controller function here
+        await addNotification("Event Creation", `A new event '${eventName}' has been scheduled`);
+        
         const io = req.app.get('socketio');
         if (io) {
             io.emit('add-event', { type: 'Admin', message: 'Update Triggered' });
