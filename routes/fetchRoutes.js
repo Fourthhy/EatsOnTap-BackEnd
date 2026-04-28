@@ -4,6 +4,7 @@ const router = express.Router();
 const fetchController = require('../controllers/fetchController');
 const reportController = require('../controllers/reportController');
 const claimController = require('../controllers/claimController');
+const notificationController = require('../controllers/notificationController');
 
 // ========= FECTCH CONTROLLER ROUTES =========
 
@@ -40,5 +41,9 @@ router.get('/getFinancialReport', reportController.getFinancialReport);
 // ========= CLAIM CONTROLLER ROUTES =========
 
 router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday);
+
+// ========= NOTIFICATION CONTROLLER ROUTES =========
+
+router.get('/fetchNotifications', notificationController.fetchNotifications);
 
 module.exports = router;

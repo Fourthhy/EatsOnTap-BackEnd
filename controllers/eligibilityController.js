@@ -7,7 +7,6 @@ import mealValue from '../models/mealValue.js';
 import Setting from '../models/setting.js'
 
 import { logAction } from "./systemLoggerController.js"
-import { addNotification } from "./notificationController.js";
 
 const getStudentIDsBySection = async (section) => {
     if (!section) {
@@ -118,8 +117,8 @@ const submitDailyMealRequestList = async (req, res, next) => {
             }
         );
 
-        addNotification("Meal Request", `${adviser.first_name} ${adviser.last_name} submitted a meal request for ${section}`);
-
+        //Add the "addNotificaation" controller function here
+        
         // Socket emission
         const io = req.app.get('socketio');
         if (io) {

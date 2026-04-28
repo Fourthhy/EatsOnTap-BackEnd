@@ -1,33 +1,47 @@
 import Notification from '../models/notification.js';
+import moment from "moment-timezone";
 
-const addNotification = async (type, description, io = null) => {
-    try {
-        console.log(`🔔 Generating Notification: [${type}] ${description}`);
+const NOTIFICATION_PERMISSIONS = {
+    "Meal Request": ["ADMIN"],
+    "Event Creation": ["ADMIN", "CHANCELLOR"],
+    "Export Report": ["ADMIN", "CHANCELLOR"],
+    "Setting Change": ["ADMIN", "SUPER-ADMIN", "CHANCELLOR"],
+    "Upcoming Event": ["ADMIN", "ADMIN-ASSISTANT", "CHANCELLOR"],
+    "Update Student Registry": ["ADMIN", "ADMIN-ASSISTANT", "SUPER-ADMIN", "CHANCELLOR"],
+    "Event Credit Bestowment": ["ADMIN", "ADMIN-ASSISTANT", "CHANCELLOR"]
+};
 
-        // 1. Save to Database
-        const newNotif = new Notification({
-            notificationType: type, // Ensure model expects String or Array based on your schema
-            description: description,
-            date: new Date()
-        });
+/**
+ * Adds a notification to a specific date group.
+ * @param {Date} groupDate - The date document to target (e.g., today's date).
+ * @param {Object} notificationData - The specific notification details.
+ */
+const addNotification = async (type, description) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-        await newNotif.save();
+    // Look up the required roles based on the type
+    const targetAudience = NOTIFICATION_PERMISSIONS[type] || [];
 
-        // 2. Emit Socket Event (Only if IO is provided)
-        if (io) {
-            io.emit('receive-notification', newNotif);
-            console.log('📡 Socket Emitted to Client');
-        }
-
-        return newNotif; // Return the object so the caller can use it
-
-    } catch (error) {
-        console.error("❌ Error in addNotification:", error);
-        throw error; 
-    }
+    return await Notification.findOneAndUpdate(
+        { date: today },
+        {
+            $push: {
+                data: {
+                    notificationType: [type],
+                    description: description,
+                    targetRoles: targetAudience, // Inject the roles directly into the DB
+                    time: new Date(),
+                    isRead: false
+                }
+            }
+        },
+        { upsert: true, new: true, runValidators: true }
+    );
 };
 
 const generateNotification = async (req, res, next) => {
+
     try {
         const { type, description } = req.body;
 
@@ -51,64 +65,155 @@ const generateNotification = async (req, res, next) => {
     }
 };
 
-const fetchNotifications = async (req, res, next) => {
+const fetchNotification = async (req, res, next) => {
     try {
-        // 1. Fetch Last 10 Notifications (Sorted Newest First)
-        const rawNotifications = await Notification.find()
+        // 0. Safety Check
+        if (!req.user || !req.user.role || !req.user._id) {
+            return res.status(401).json({ message: "Unauthorized: User information is missing." });
+        }
+        // 1. Fetch the documents from the DB
+        // We use .lean() to get plain JS objects, making it easier to manipulate
+        const rawDocs = await Notification.find()
             .sort({ date: -1 })
-            .limit(10);
+            .limit(10)
+            .lean();
 
-        // 2. Grouping Logic
-        const groupedResult = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        rawNotifications.forEach((notif) => {
-            const d = new Date(notif.date);
-            
-            // Create a comparable key object
-            const dateKey = {
-                month: d.getMonth() + 1, // JS months are 0-11
-                day: d.getDate(),
-                year: d.getFullYear()
-            };
+        // 2. Map through each document (which represents a day)
+        const formattedResult = rawDocs.map((doc) => {
+            const docDate = new Date(doc.date);
+            docDate.setHours(0, 0, 0, 0);
 
-            // Check if the last group in our array belongs to this same date
-            const lastGroup = groupedResult[groupedResult.length - 1];
-
-            // Helper to check date equality
-            const isSameDate = lastGroup && 
-                lastGroup.Date.month === dateKey.month &&
-                lastGroup.Date.day === dateKey.day &&
-                lastGroup.Date.year === dateKey.year;
-
-            if (isSameDate) {
-                // Add to existing group
-                lastGroup.notifications.push(notif);
+            // Determine if the label should be "Today"
+            let dateLabel;
+            if (docDate.getTime() === today.getTime()) {
+                dateLabel = "Today";
             } else {
-                // Create new group
-                groupedResult.push({
-                    Date: dateKey,
-                    notifications: [notif]
-                });
+                dateLabel = new Intl.DateTimeFormat('en-US', {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric'
+                }).format(docDate);
             }
+
+            // 3. Map through the INNER 'data' array from your schema
+            const filteredAndFormattedData = doc.data
+                .filter(item => item.targetRoles && item.targetRoles.includes(req.user.role))
+                .map(item => ({
+                    notificationId: item._id,
+                    notificationType: item.notificationType[0],
+                    description: item.description,
+                    // Check if THIS user has read it
+                    isRead: item.readBy.some(id => id.toString() === req.user._id.toString()),
+                    time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }).format(new Date(item.time))
+                }));
+
+            return {
+                date: dateLabel,
+                data: filteredAndFormattedData // This will now contain your notifications
+            };
         });
 
-        res.status(200).json(groupedResult);
-
+        res.status(200).json(formattedResult);
     } catch (error) {
         next(error);
     }
 };
 
-// Optional: Mark as Read function
-const markAsRead = async (req, res, next) => {
+const fetchNotifications = async (req, res, next) => {
     try {
-        const { id } = req.body;
-        await Notification.findByIdAndUpdate(id, { isRead: true });
-        res.status(200).json({ message: "Marked as read" });
+        const userRole = req.query.role || req.body.role || (req.user && req.user.role);
+        const currentUserID = req.query.userID || req.body.userID || (req.user && req.user.userID);
+
+        if (!userRole) {
+            return res.status(400).json({ message: "Please provide a role." });
+        }
+
+        // 2. Gather the matched keys (Which notification types can this role see?)
+        // Object.keys() creates an array of all the types, then we filter it
+        const allowedTypes = Object.keys(NOTIFICATION_PERMISSIONS).filter(type =>
+            NOTIFICATION_PERMISSIONS[type].includes(userRole)
+        );
+
+        // 3. The Aggregation Pipeline
+        const aggregatedDocs = await Notification.aggregate([
+            { $unwind: "$data" },
+
+            // SEARCH BY TYPE: Only keep notifications whose type is in our 'allowedTypes' array
+            { $match: { "data.notificationType": { $in: allowedTypes } } },
+
+            { $sort: { "data.time": -1 } },
+            { $limit: 20 }, // LIMIT TO 30
+            {
+                $group: {
+                    _id: "$date",
+                    data: { $push: "$data" }
+                }
+            },
+            { $sort: { "_id": -1 } }
+        ]);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // 4. Format the Output
+        const formattedResult = aggregatedDocs.map((group) => {
+            const groupDate = new Date(group._id);
+            groupDate.setHours(0, 0, 0, 0);
+
+            let dateLabel = (groupDate.getTime() === today.getTime())
+                ? "Today"
+                : new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(groupDate);
+
+            const formattedData = group.data.map(item => ({
+                notificationId: item._id,
+                notificationType: item.notificationType[0],
+                description: item.description,
+                isRead: currentUserID ? item.readBy.includes(currentUserID) : false,
+                time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }).format(new Date(item.time))
+            }));
+
+            return {
+                date: dateLabel,
+                data: formattedData
+            };
+        });
+
+        res.status(200).json(formattedResult);
     } catch (error) {
         next(error);
     }
-}
+};
+
+const markAsRead = async (req, res, next) => {
+    try {
+        // Grab the IDs from the request body
+        const { notificationId, userID } = req.body;
+
+        if (!notificationId || !userID) {
+            return res.status(400).json({ message: "Missing notificationId or userID" });
+        }
+
+        const updatedDoc = await Notification.findOneAndUpdate(
+            { "data._id": notificationId },
+            {
+                // $addToSet acts like $push, but prevents duplicate entries!
+                $addToSet: { "data.$.readBy": userID }
+            },
+            { new: true }
+        );
+
+        if (!updatedDoc) {
+            return res.status(404).json({ message: "Notification not found." });
+        }
+
+        res.status(200).json({ message: "Notification marked as read!" });
+    } catch (error) {
+        next(error);
+    }
+};
 
 export {
     generateNotification,
