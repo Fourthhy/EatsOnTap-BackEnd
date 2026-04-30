@@ -22,7 +22,6 @@ const addNotification = async (type, description) => {
     const phTime = new Date(Date.now() + phTimeOffset);
 
     // 2. Set 'today' to exactly midnight of the Philippine day.
-    // We use Date.UTC to prevent the server's local timezone from interfering.
     const today = new Date(Date.UTC(
         phTime.getUTCFullYear(),
         phTime.getUTCMonth(),
@@ -40,8 +39,8 @@ const addNotification = async (type, description) => {
                     notificationType: [type],
                     description: description,
                     targetRoles: targetAudience,
-                    time: phTime, // Inject the GMT+8 shifted time
-                    isRead: false
+                    time: phTime,
+                    readBy: [] // 🟢 THE FIX: Initialized as an empty array to match your Schema
                 }
             }
         },
@@ -141,27 +140,25 @@ const fetchNotifications = async (req, res, next) => {
 
 const markAsRead = async (req, res, next) => {
     try {
-        // Grab the IDs from the request body
-        const { notificationId, userID } = req.body;
+        // Grab the array of IDs and the userID from the request body
+        const { notificationIds, userID } = req.body;
 
-        if (!notificationId || !userID) {
-            return res.status(400).json({ message: "Missing notificationId or userID" });
+        if (!notificationIds || !Array.isArray(notificationIds) || !userID) {
+            return res.status(400).json({ message: "Please provide an array of notificationIds and a userID." });
         }
 
-        const updatedDoc = await Notification.findOneAndUpdate(
-            { "data._id": notificationId },
-            {
-                // $addToSet acts like $push, but prevents duplicate entries!
-                $addToSet: { "data.$.readBy": userID }
-            },
-            { new: true }
+        if (notificationIds.length === 0) {
+            return res.status(200).json({ message: "No notifications to update." });
+        }
+
+        // 🟢 THE FIX: Bulk update multiple subdocuments at once
+        await Notification.updateMany(
+            { "data._id": { $in: notificationIds } }, // Find documents containing these IDs
+            { $addToSet: { "data.$[elem].readBy": userID } }, // Add user to readBy
+            { arrayFilters: [{ "elem._id": { $in: notificationIds } }] } // Apply only to the specific array elements
         );
 
-        if (!updatedDoc) {
-            return res.status(404).json({ message: "Notification not found." });
-        }
-
-        res.status(200).json({ message: "Notification marked as read!" });
+        res.status(200).json({ message: "Notifications marked as read!" });
     } catch (error) {
         next(error);
     }
