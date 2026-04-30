@@ -13,12 +13,21 @@ const NOTIFICATION_PERMISSIONS = {
 
 /**
  * Adds a notification to a specific date group.
- * @param {Date} groupDate - The date document to target (e.g., today's date).
- * @param {Object} notificationData - The specific notification details.
+ * @param {string} type - The notification type
+ * @param {string} description - The specific notification details.
  */
 const addNotification = async (type, description) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 1. Get current UTC time and add exactly 8 hours (in milliseconds)
+    const phTimeOffset = 8 * 60 * 60 * 1000;
+    const phTime = new Date(Date.now() + phTimeOffset);
+
+    // 2. Set 'today' to exactly midnight of the Philippine day.
+    // We use Date.UTC to prevent the server's local timezone from interfering.
+    const today = new Date(Date.UTC(
+        phTime.getUTCFullYear(),
+        phTime.getUTCMonth(),
+        phTime.getUTCDate()
+    ));
 
     // Look up the required roles based on the type
     const targetAudience = NOTIFICATION_PERMISSIONS[type] || [];
@@ -30,8 +39,8 @@ const addNotification = async (type, description) => {
                 data: {
                     notificationType: [type],
                     description: description,
-                    targetRoles: targetAudience, // Inject the roles directly into the DB
-                    time: new Date(),
+                    targetRoles: targetAudience,
+                    time: phTime, // Inject the GMT+8 shifted time
                     isRead: false
                 }
             }
@@ -115,7 +124,7 @@ const fetchNotifications = async (req, res, next) => {
                 notificationType: item.notificationType[0],
                 description: item.description,
                 isRead: currentUserID ? item.readBy.includes(currentUserID) : false,
-                time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }).format(new Date(item.time))
+                time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true, timeZone: 'UTC' }).format(new Date(item.time))
             }));
 
             return {
