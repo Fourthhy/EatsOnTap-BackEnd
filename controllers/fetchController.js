@@ -9,6 +9,8 @@ import ClaimRecord from "../models/claimRecord.js"
 
 import SectionProgram from "../models/sectionprogram.js"
 
+import ProgramSchedule from "../models/ProgramSchedule.js"
+
 // =========================================================
 // 🟢 NEW HELPER: Department Sorter (DRY Principle)
 // =========================================================
@@ -144,10 +146,10 @@ const getSchoolStructure = async (req, res, next) => {
 
         const responseData = Object.keys(departmentsMap).map(deptKey => {
             const yearsObj = departmentsMap[deptKey];
-            
+
             const levels = Object.keys(yearsObj).map(yearKey => {
                 const sortedData = Array.from(yearsObj[yearKey]).sort();
-                
+
                 // 🟢 DYNAMIC KEY FIX: Return "programs" for higher ed, "sections" for basic ed
                 if (deptKey === "higherEducation") {
                     return {
@@ -254,20 +256,74 @@ const getAllBasicEducationMealRequest = async (req, res, next) => {
     }
 };
 
+const DAYS_OF_WEEK = [
+    "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"
+];
+
 const getAllHigherEducationMealRequest = async (req, res, next) => {
     try {
-        // 🟢 Replaced manual UTC/Manila math with 1 line!
-        const { start, end } = getPHDateRange();
+        // 1. Determine the current day dynamically (Ensure timezone is correct for PH if needed)
+        const dateInPH = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" });
+        const todayIndex = new Date(dateInPH).getDay(); 
+        const currentDayString = DAYS_OF_WEEK[todayIndex];
 
-        const allHigherEducationMealRequest = await eligibilityHigherEd.find({
-            timeStamp: { $gte: start, $lte: end }
+        console.log(`Starting daily generation for: ${currentDayString}`);
+
+        // 2. Fetch all active schedules for today
+        const todaysSchedules = await ProgramSchedule.find({
+            dayOfWeek: currentDayString,
+            isActive: true
         });
 
-        return res.status(200).json(allHigherEducationMealRequest);
+        // OUTPUT 1: If there are no schedules, return a 200 OK with a message
+        if (todaysSchedules.length === 0) {
+            console.log(`No active programs scheduled for ${currentDayString}.`);
+            return res.status(200).json({
+                success: true,
+                message: `No active programs scheduled for ${currentDayString}.`,
+                data: []
+            });
+        }
+
+        // 3. Process each schedule and save to eligibilityHigherEd
+        const generatedRecords = []; // Array to store created records for the response
+
+        for (const schedule of todaysSchedules) {
+            const newRecord = new eligibilityHigherEd({
+                eligibilityID: `ELIG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                requester: "System Auto-Generator",
+                program: schedule.program,
+                year: parseInt(schedule.year, 10),
+                forEligible: [],
+                forWaived: [],
+                forDay: currentDayString
+            });
+
+            const savedRecord = await newRecord.save();
+            generatedRecords.push(savedRecord);
+            console.log(`Successfully generated eligibility for ${schedule.program} Year ${schedule.year}`);
+        }
+
+        console.log("Daily eligibility generation complete!");
+
+        // OUTPUT 2: Return a 201 Created with the data we just generated
+        return res.status(201).json({
+            success: true,
+            message: "Daily eligibility generation complete!",
+            data: generatedRecords
+        });
+
     } catch (error) {
-        next(error);
+        console.error("Error generating daily eligibility:", error);
+        
+        // OUTPUT 3: Return a 500 Internal Server Error if something breaks
+        return res.status(500).json({
+            success: false,
+            message: "An error occurred while generating daily eligibility.",
+            error: error.message
+        });
     }
-};
+}
 
 const getTodayClaimRecord = async (req, res, next) => {
     try {
@@ -355,11 +411,11 @@ const getAllEvents = async (req, res, next) => {
                 // Force the status to be accurate in real-time for the frontend badges
                 event.scheduleStatus = 'ONGOING';
                 ongoingEvents.push(event);
-            } 
+            }
             else if (now < startDate) {
                 event.scheduleStatus = 'UPCOMING';
                 upcomingEvents.push(event);
-            } 
+            }
             else if (now > endDate) {
                 event.scheduleStatus = 'RECENT';
                 recentEvents.push(event);
