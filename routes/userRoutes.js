@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const usercontroller = require('../controllers/usercontroller');
+const notificationController = require('../controllers/notificationController.js');
 
 const upload = require('../middlewares/multer.js').default;
 
@@ -19,5 +20,8 @@ router.put('/resetPassword', usercontroller.resetUserPassword)
 
 //New route for editing user name
 router.put('/editName', usercontroller.editName);
+
+//Route for marking notifications as read
+router.post('/markAsRead', notificationController.markAsRead);
 
 module.exports = router;
