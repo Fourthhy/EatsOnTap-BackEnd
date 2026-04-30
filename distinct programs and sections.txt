@@ -1,7 +1,7 @@
-"Meal Request" - viewed by: ADMIN
-"Event Creation" - ADMIN, CHANCELLOR
-"Export Report" - ADMIN, CHANCELLOR
-"Setting Change" - ADMIN, SUPER ADMIN, CHANCELLOR
-"Upcoming Event" - ADMIN, ADMIN ASSISTANT, CHANCELLOR
-"Update Student Registry" - viewed by: ADMIN, ADMIN ASSISSTANT, SUPER ADMIN, CHANCELLOR,  
-"Event Credit Bestowment" - viewed by: ADMIN, ADMIN ASSISTANT, CHANCELLOR
+ "Meal Request" - viewed by: ADMIN
+DONE "Event Creation" - ADMIN, CHANCELLOR
+ "Export Report" - ADMIN, CHANCELLOR
+ "Setting Change" - ADMIN, SUPER ADMIN, CHANCELLOR
+ "Upcoming Event" - ADMIN, ADMIN ASSISTANT, CHANCELLOR
+ "Update Student Registry" - viewed by: ADMIN, ADMIN ASSISSTANT, SUPER ADMIN, CHANCELLOR,  
+ "Event Credit Bestowment" - viewed by: ADMIN, ADMIN ASSISTANT, CHANCELLOR

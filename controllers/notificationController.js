@@ -65,67 +65,10 @@ const generateNotification = async (req, res, next) => {
     }
 };
 
-const fetchNotification = async (req, res, next) => {
-    try {
-        // 0. Safety Check
-        if (!req.user || !req.user.role || !req.user._id) {
-            return res.status(401).json({ message: "Unauthorized: User information is missing." });
-        }
-        // 1. Fetch the documents from the DB
-        // We use .lean() to get plain JS objects, making it easier to manipulate
-        const rawDocs = await Notification.find()
-            .sort({ date: -1 })
-            .limit(10)
-            .lean();
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        // 2. Map through each document (which represents a day)
-        const formattedResult = rawDocs.map((doc) => {
-            const docDate = new Date(doc.date);
-            docDate.setHours(0, 0, 0, 0);
-
-            // Determine if the label should be "Today"
-            let dateLabel;
-            if (docDate.getTime() === today.getTime()) {
-                dateLabel = "Today";
-            } else {
-                dateLabel = new Intl.DateTimeFormat('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric'
-                }).format(docDate);
-            }
-
-            // 3. Map through the INNER 'data' array from your schema
-            const filteredAndFormattedData = doc.data
-                .filter(item => item.targetRoles && item.targetRoles.includes(req.user.role))
-                .map(item => ({
-                    notificationId: item._id,
-                    notificationType: item.notificationType[0],
-                    description: item.description,
-                    // Check if THIS user has read it
-                    isRead: item.readBy.some(id => id.toString() === req.user._id.toString()),
-                    time: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }).format(new Date(item.time))
-                }));
-
-            return {
-                date: dateLabel,
-                data: filteredAndFormattedData // This will now contain your notifications
-            };
-        });
-
-        res.status(200).json(formattedResult);
-    } catch (error) {
-        next(error);
-    }
-};
-
 const fetchNotifications = async (req, res, next) => {
     try {
-        const userRole = req.query.role || req.body.role || (req.user && req.user.role);
-        const currentUserID = req.query.userID || req.body.userID || (req.user && req.user.userID);
+        const userRole = req.body.role;
+        const currentUserID = req.body.userID;
 
         if (!userRole) {
             return res.status(400).json({ message: "Please provide a role." });

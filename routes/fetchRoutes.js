@@ -44,6 +44,6 @@ router.get('/getApprovedStudentsToday', claimController.getApprovedStudentsToday
 
 // ========= NOTIFICATION CONTROLLER ROUTES =========
 
-router.get('/fetchNotifications', notificationController.fetchNotifications);
+router.post('/fetchNotifications', notificationController.fetchNotifications);
 
 module.exports = router;

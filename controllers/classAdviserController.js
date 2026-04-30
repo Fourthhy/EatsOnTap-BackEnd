@@ -132,16 +132,17 @@ const getAllClassAdvisers = async (req, res, next) => {
 
 const addClassAdviser = async (req, res, next) => {
     try {
-        const { 
-            userID, 
-            honorific, 
-            first_name, 
-            middle_name, 
-            last_name, 
-            section, 
+        const {
+            userID,
+            honorific,
+            first_name,
+            middle_name,
+            last_name,
+            section,
+            advisoryYear,    // 🟢 ADDED: Capture advisoryYear from req.body
             role,
-            email,           // 🟢 NEW: Capture the email from the frontend
-            isGoogleAuth     // 🟢 NEW: Capture the Google Auth flag
+            email,
+            isGoogleAuth
         } = req.body;
 
         // 1. Validation
@@ -149,8 +150,7 @@ const addClassAdviser = async (req, res, next) => {
             return res.status(400).json({ message: "Missing required fields (ID, Name, or Honorific)." });
         }
 
-        // 🟢 2. DETERMINE EMAIL (CRITICAL FOR GOOGLE AUTH)
-        // If the admin typed an exact email, use it. Otherwise, auto-generate.
+        // 2. DETERMINE EMAIL
         let finalEmail;
         if (email) {
             finalEmail = email.toLowerCase().trim();
@@ -161,19 +161,18 @@ const addClassAdviser = async (req, res, next) => {
         }
 
         // 3. GENERATE PASSWORD
-        // Logic: 'EatsOnTapClassAdviser' + (Current Count + 1)
         const adviserCount = await ClassAdviser.countDocuments({});
         const nextIndex = adviserCount + 1;
         const generatedPassword = `EatsOnTapClassAdviser${nextIndex}`;
 
-        // 4. Check for Duplicates (UserID or Email)
-        const existingAdviser = await ClassAdviser.findOne({ 
-            $or: [{ userID: userID }, { email: finalEmail }] 
+        // 4. Check for Duplicates
+        const existingAdviser = await ClassAdviser.findOne({
+            $or: [{ userID: userID }, { email: finalEmail }]
         });
 
         if (existingAdviser) {
-            return res.status(409).json({ 
-                message: `Duplicate detected. User ID '${userID}' or Email '${finalEmail}' already exists.` 
+            return res.status(409).json({
+                message: `Duplicate detected. User ID '${userID}' or Email '${finalEmail}' already exists.`
             });
         }
 
@@ -189,45 +188,41 @@ const addClassAdviser = async (req, res, next) => {
             middle_name,
             last_name,
             section: section || undefined,
+            advisoryYear: advisoryYear || undefined, // 🟢 ADDED: Save to database
             email: finalEmail,
             password: hashedPassword,
             role: role || 'CLASS-ADVISER',
-            isActive: false, 
-            // 🟢 UPDATE: If using Google, they don't need to change their local password!
-            isRequiredChangePassword: isGoogleAuth ? false : true 
+            isActive: false,
+            isRequiredChangePassword: isGoogleAuth ? false : true
         });
 
         await newAdviser.save();
 
-        // 7. SYSTEM LOG: Create Adviser
+        // 7. SYSTEM LOG
         const actorID = req.user ? (req.user._id || req.user.userID) : 'SYSTEM';
         const actorName = req.user ? req.user.email : 'System Admin';
 
         await logAction(
-            { 
-                id: actorID, 
-                type: 'User', 
-                name: actorName, 
-                role: 'ADMIN' 
-            },
-            'CREATE_ADVISER', // 🟢 Made the action more specific
+            { id: actorID, type: 'User', name: actorName, role: 'ADMIN' },
+            'CREATE_ADVISER',
             'SUCCESS',
-            { 
-                description: `Created Class Adviser account: ${userID} (${section || 'No Section'})`,
+            {
+                // 🟢 UPDATED: Included year in log description
+                description: `Created Class Adviser account: ${userID} (${advisoryYear || 'N/A'} - ${section || 'No Section'})`,
                 generatedEmail: finalEmail,
-                isGoogleAuth: isGoogleAuth || false // 🟢 Log if they are a Google user
+                isGoogleAuth: isGoogleAuth || false
             }
         );
 
-        res.status(201).json({ 
-            message: "Class Adviser account created successfully.", 
+        res.status(201).json({
+            message: "Class Adviser account created successfully.",
             data: {
                 userID: newAdviser.userID,
                 name: `${newAdviser.first_name} ${newAdviser.last_name}`,
                 email: newAdviser.email,
                 section: newAdviser.section,
-                // 🟢 UPDATE: Don't show a dummy password to the Admin if it's a Google Account
-                initialPassword: isGoogleAuth ? 'N/A (Google Authentication)' : generatedPassword 
+                advisoryYear: newAdviser.advisoryYear, // 🟢 ADDED: Include in response
+                initialPassword: isGoogleAuth ? 'N/A (Google Authentication)' : generatedPassword
             }
         });
 

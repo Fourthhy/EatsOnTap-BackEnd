@@ -120,7 +120,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
         );
 
         //Add the "addNotificaation" controller function here
-        await addNotification('Meal Request', ``)
+        await addNotification('Meal Request', `${adviser.honorific} ${adviser.first_name} ${adviser.last_name} submitted a meal request for ${adviser.year} - ${adviser.section}`)
         
         // Socket emission
         const io = req.app.get('socketio');

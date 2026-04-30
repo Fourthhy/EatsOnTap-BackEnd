@@ -4,28 +4,32 @@ import classAdviser from "../models/classAdviser.js";
 
 const addSectionProgram = async (req, res, next) => {
     try {
-        // 1. Destructure the new field
         const { department, year, section, program, handleAdviser } = req.body;
 
-        // 2. Validate Mandatory Fields
         if (!department || !year) {
-            return res.status(400).json({
-                message: "Department and Year are required fields."
-            });
+            return res.status(400).json({ message: "Department and Year are required fields." });
         }
 
-        // 3. Validate Context (Must have Section OR Program)
         if (!section && !program) {
-            return res.status(400).json({
-                message: "Please provide either a Section name or a Program name."
-            });
+            return res.status(400).json({ message: "Please provide either a Section name or a Program name." });
         }
 
-        // 4. Check for Duplicates
-        // We verify uniqueness based on Dept + Year + Section/Program
-        // (We ignore adviser here so you don't create duplicate sections)
+        // 🟢 1. MAP FRONTEND STRINGS TO SCHEMA ENUMS
+        const deptEnumMap = {
+            'Preschool': 'PRESCHOOL',
+            'Primary Education': 'PRIMARY',
+            'Intermediate': 'INTERMEDIATE',
+            'Junior High School': 'JUNIOR HIGH SCHOOL',
+            'Senior High School': 'SENIOR HIGH SCHOOL',
+            'Higher Education': 'HIGHER EDUCATION'
+        };
+
+        // Get the mapped value, fallback to uppercasing it just in case
+        const mappedDepartment = deptEnumMap[department.trim()] || department.trim().toUpperCase();
+
+        // 2. Check for Duplicates
         const query = {
-            department: department.trim(),
+            department: mappedDepartment,
             year: year.trim()
         };
 
@@ -35,18 +39,19 @@ const addSectionProgram = async (req, res, next) => {
         const existingEntry = await SectionProgram.findOne(query);
 
         if (existingEntry) {
-            return res.status(409).json({
-                message: "This exact Section or Program entry already exists."
-            });
+            return res.status(409).json({ message: "This exact Section or Program entry already exists." });
         }
 
-        // 5. Create New Record with Adviser
+        // 🟢 3. SAVE RECORD (Fixing the adviser field mapping)
         const newEntry = new SectionProgram({
-            department: department.trim(),
+            department: mappedDepartment,
             year: year.trim(),
             section: section ? section.trim() : undefined,
             program: program ? program.trim() : undefined,
-            handleAdviser: handleAdviser ? handleAdviser.trim() : undefined,
+            
+            // Map the frontend's 'handleAdviser' strictly to the schema's 'adviser'
+            adviser: handleAdviser ? handleAdviser.trim() : undefined, 
+            
             studentCount: 0
         });
 
@@ -57,16 +62,19 @@ const addSectionProgram = async (req, res, next) => {
             data: newEntry
         });
 
-        // 7. Socket.io Broadcast
+        // Socket.io Broadcast
         const io = req.app.get('socketio');
         if (io) {
             io.emit('update-section-program-register', { type: 'All-section-programs', message: 'Update section-program register' });
-            console.log('🔔 Socket Emitted to all section-program clients');
-        } else {
-            console.error('❌ Socket.io not found');
         }
 
     } catch (error) {
+        // Helpful error logging to catch any remaining schema validation issues
+        if (error.name === 'ValidationError') {
+            console.error("Schema Validation Error:", error.errors);
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({ message: messages.join(', ') });
+        }
         next(error);
     }
 };

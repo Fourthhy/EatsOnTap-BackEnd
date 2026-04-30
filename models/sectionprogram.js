@@ -1,17 +1,17 @@
 const mongoose = require('mongoose');
 
 const sectionprogramSchema = new mongoose.Schema({
-    department: { type: String, enum: ["PRIMARY", "INTERMEDIATE", "JUNIOR HIGH SCHOOL", "SENIOR HIGH SCHOOL", "HIGHER EDUCATION"], required: true },
+    // 🟢 ADDED "PRESCHOOL" to the enum list
+    department: { 
+        type: String, 
+        enum: ["PRESCHOOL", "PRIMARY", "INTERMEDIATE", "JUNIOR HIGH SCHOOL", "SENIOR HIGH SCHOOL", "HIGHER EDUCATION"], 
+        required: true 
+    },
     year: { type: String, required: true },
-    //"pre-k" (pre-kinder), "k" (kinder), 1-12, 1-2, 1-4
     section: { type: String },
-    //section under the Basic Education Department.
     program: { type: String },
-    //programs under the Higher Education Department.
-    adviser: { type: String },
-    //the teacher assigned to the section or program. filled by its userID
+    adviser: { type: String }, // 🟢 NOTE: This is 'adviser', not 'handleAdviser'
     studentCount: { type: Number, default: 0 }
-    //how many students in the section or program.
-})
+});
 
 module.exports = mongoose.model('SectionProgram', sectionprogramSchema);
