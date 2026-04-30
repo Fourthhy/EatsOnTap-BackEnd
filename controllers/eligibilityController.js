@@ -40,7 +40,8 @@ const getStudentIDsByProgramAndYear = async (program, year) => {
 
 const submitDailyMealRequestList = async (req, res, next) => {
     try {
-        const { requesterID, section, forEligibleStudentIDs, forAbsentStudentIDs } = req.body;
+        // 🟢 1. Extract 'year' from req.body
+        const { requesterID, year, section, forEligibleStudentIDs, forAbsentStudentIDs } = req.body;
 
         const submitSetting = await Setting.findOne({ setting: 'SUBMIT-MEAL-REQUEST' });
         if (!submitSetting) {
@@ -52,12 +53,15 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         // Validation
         if (!requesterID) return res.status(400).json({ message: "Missing required field: requesterID" });
+        if (!year) return res.status(400).json({ message: "Missing required field: year" }); // 🟢 2. Add validation for year
         if (!section) return res.status(400).json({ message: "Missing required field: section" });
         if (!Array.isArray(forEligibleStudentIDs)) return res.status(400).json({ message: "Missing/Invalid field: forEligibleStudentIDs" });
 
         const absentIDs = Array.isArray(forAbsentStudentIDs) ? forAbsentStudentIDs : [];
 
-        // 🟢 Fetch Adviser (Used for Auth AND Logging)
+        // Fetch Adviser (Used for Auth AND Logging)
+        // 🟢 Tip: You might also want to query by year here: { userID: requesterID, year: year, section: section } 
+        // if sections can have the same name across different years.
         const adviser = await classAdviser.findOne({ userID: requesterID, section: section });
         if (!adviser) {
             return res.status(404).json({ message: `Authorization failed. Class adviser is not for ${section} section` });
@@ -91,8 +95,10 @@ const submitDailyMealRequestList = async (req, res, next) => {
         const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
         const newEligibilityListing = new eligibilityBasicEd({
-            eligibilityID: `${requesterID}-${section}-${dateStr}`,
+            // 🟢 3. Optional: Included year in the ID generation to prevent duplicates if section names overlap
+            eligibilityID: `${requesterID}-${year}-${section}-${dateStr}`, 
             requester: requesterID,
+            year: year, // 🟢 4. Include the year field in the Mongoose document creation
             section: section,
             forEligible: forEligible,
             forTemporarilyWaived: forTemporarilyWaived,
@@ -102,7 +108,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         await newEligibilityListing.save();
 
-        // 🟢 SYSTEM LOG: Submit List
+        // SYSTEM LOG: Submit List
         await logAction(
             {
                 id: adviser._id, // Use the DB _id found earlier
@@ -115,11 +121,11 @@ const submitDailyMealRequestList = async (req, res, next) => {
             {
                 referenceID: newEligibilityListing.eligibilityID,
                 affectedCount: allStudentIDs.length, // Total students in section
-                description: `Submitted list for ${section}: ${forEligible.length} Eligible, ${absentIDs.length} Absent, ${forTemporarilyWaived.length} Waived.`
+                description: `Submitted list for Year ${year} - ${section}: ${forEligible.length} Eligible, ${absentIDs.length} Absent, ${forTemporarilyWaived.length} Waived.`
             }
         );
 
-        //Add the "addNotificaation" controller function here
+        // Add the "addNotification" controller function here
         await addNotification('Meal Request', `${adviser.honorific} ${adviser.first_name} ${adviser.last_name} submitted a meal request for ${adviser.year} - ${adviser.section}`)
         
         // Socket emission
@@ -131,7 +137,7 @@ const submitDailyMealRequestList = async (req, res, next) => {
 
         // Success response
         res.status(201).json({
-            message: `Meal Recipient list submitted for ${section} section`,
+            message: `Meal Recipient list submitted for Year ${year} - ${section} section`,
             totalStudents: allStudentIDs.length,
             eligibleCount: forEligible.length,
             waivedCount: forTemporarilyWaived.length,
