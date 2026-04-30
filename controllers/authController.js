@@ -210,6 +210,7 @@ const loginClassAdviser = async (req, res) => {
             res.json({
                 userID: adviser.userID,
                 email: adviser.email,
+                year: adviser.year,
                 section: adviser.section,
                 role: adviser.role,
                 token: token,
