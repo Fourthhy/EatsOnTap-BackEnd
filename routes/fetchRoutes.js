@@ -10,11 +10,11 @@ const notificationController = require('../controllers/notificationController');
 
 router.get('/getAllBasicEducationMealRequest', fetchController.getAllBasicEducationMealRequest);
 
+router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEducationMealRequest);
+
 router.get('/getAllClassAdvisers', fetchController.getAllClassAdvisers);
 
 router.get('/getAllEvents', fetchController.getAllEvents);
-
-router.get('/getAllHigherEducationMealRequest', fetchController.getAllHigherEducationMealRequest);
 
 router.get('/getAllSectionProgramList', fetchController.getAllSectionProgramList);
 
