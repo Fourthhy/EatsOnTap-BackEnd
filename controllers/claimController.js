@@ -899,7 +899,7 @@ const getApprovedStudentsToday = async (req, res, next) => {
         // Build query conditions for these programs
         // Format: { program: "BSIS", year: "4" }
         const programConditions = activeSchedules.map(sched => ({
-            program: sched.programName,
+            program: sched.program,
             year: sched.year
         }));
 
