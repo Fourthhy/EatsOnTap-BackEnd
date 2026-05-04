@@ -10,4 +10,6 @@ router.put('/editProgramSchedule', programScheduleController.editProgramSchedule
 router.get('/getWeeklyMealStats', programScheduleController.getWeeklyMealStats);
 router.put('/updateProgramSchedule', programScheduleController.updateProgramSchedule);
 
+router.post('/higherEdStudentManagement', programScheduleController.higherEdStudentManagement)
+
 module.exports = router;
